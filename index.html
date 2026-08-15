@@ -1,0 +1,275 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="description" content="SQL Detective — jogo educacional de SQL com tema de investigação de fraude financeira." />
+  <title>SQL Detective — O Mistério das Transações Fantasmas</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700;800&display=swap" rel="stylesheet" />
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ctext y='26' font-size='28'%3E%F0%9F%95%B5%EF%B8%8F%3C/text%3E%3C/svg%3E" />
+  <link rel="stylesheet" href="index.css" />
+</head>
+<body>
+  <!-- Escolha de caso: exibida antes da narrativa inicial -->
+  <div id="case-select-screen" class="case-select-screen" aria-label="Escolher caso ou projeto">
+    <div class="case-select-content">
+      <p class="case-select-eyebrow">ARQUIVO & ANALYTICS</p>
+      <h1>SQL Detective</h1>
+      <p>Escolha uma investigação policial ou um projeto de análise de dados de negócios.</p>
+
+      <section class="case-selection-group" aria-labelledby="investigation-section-title">
+        <h2 id="investigation-section-title" class="case-section-title">🕵️‍♂️ Casos Investigativos</h2>
+        <p class="case-section-desc">Investigações com histórias conectadas, pistas e desafios sequenciais.</p>
+        <div id="case-cards" class="case-cards"></div>
+      </section>
+
+      <section id="project-section" class="case-selection-group" aria-labelledby="project-section-title">
+        <h2 id="project-section-title" class="case-section-title">📊 Projetos de Análise de Dados (Blog do SQL)</h2>
+        <p class="case-section-desc">Cenários de negócios end-to-end com acesso livre para responder perguntas reais com SQL.</p>
+        <div id="project-cards" class="case-cards"></div>
+      </section>
+    </div>
+  </div>
+  <!-- Tela inicial -->
+  <div id="intro-screen" class="intro-screen hidden">
+    <div class="intro-content">
+      <h1 class="intro-title">SQL Detective</h1>
+      <h2 class="intro-subtitle">O Mistério das Transações Fantasmas</h2>
+      <div class="intro-story">
+        <p>Uma auditoria interna detectou transações bancárias suspeitas na empresa TechFin.</p>
+        <p>Valores altos foram movimentados para uma conta externa misteriosa, fora do horário normal de trabalho.</p>
+        <p>Você é o(a) detective responsável por investigar o banco de dados e descobrir o que aconteceu.</p>
+      </div>
+      <p class="intro-mission">Resolva as 12 missões para concluir a investigação.</p>
+      <button id="btn-start" type="button" class="btn btn-primary btn-large">Iniciar cenário</button>
+    </div>
+  </div>
+
+  <!-- Etapa conceitual exibida entre a narrativa e as missões SQL -->
+  <div id="database-analysis-screen" class="database-analysis-screen hidden" aria-labelledby="database-analysis-title">
+    <main class="database-analysis-content">
+      <p class="database-analysis-eyebrow">ETAPA 0 · ANÁLISE DO BANCO</p>
+      <h1 id="database-analysis-title" tabindex="-1">Como este cenário foi modelado</h1>
+      <p id="database-analysis-summary" class="database-analysis-summary"></p>
+
+      <section class="database-analysis-section" aria-labelledby="database-analysis-entities-title">
+        <h2 id="database-analysis-entities-title">Mapa de entidades</h2>
+        <div id="database-analysis-entities" class="database-analysis-grid"></div>
+      </section>
+
+      <section class="database-analysis-section" aria-labelledby="database-analysis-decisions-title">
+        <h2 id="database-analysis-decisions-title">Decisões de design</h2>
+        <div id="database-analysis-decisions" class="database-analysis-decisions"></div>
+      </section>
+
+      <section class="database-analysis-section" aria-labelledby="database-analysis-checkpoints-title">
+        <h2 id="database-analysis-checkpoints-title">Missões conceituais</h2>
+        <p class="database-analysis-section-hint">Pense na resposta e abra cada cartão para conferir.</p>
+        <div id="database-analysis-checkpoints" class="database-analysis-checkpoints"></div>
+      </section>
+
+      <div class="database-analysis-actions">
+        <button id="btn-analysis-start" type="button" class="btn btn-primary btn-large">Começar missões SQL</button>
+      </div>
+    </main>
+  </div>
+
+  <!-- Mensagem de carregamento global -->
+  <div id="app-loading" class="loading-overlay">
+    <div class="loading-spinner" aria-hidden="true"></div>
+    <p class="loading-text">Carregando SQL Detective…</p>
+  </div>
+
+  <!-- Mensagem de erro global (escondida por padrão) -->
+  <div id="app-error" class="error-banner" hidden>
+    <p id="app-error-msg">Erro ao carregar o jogo.</p>
+    <button id="app-error-retry" type="button">Tentar novamente</button>
+  </div>
+
+  <header class="app-header">
+    <h1 class="app-title">SQL Detective</h1>
+    <p class="app-subtitle">O Mistério das Transações Fantasmas</p>
+    <div class="app-status-bar">
+      <span id="db-status" class="status-pill status-pending" aria-live="polite">
+        Banco: aguardando
+      </span>
+      <span id="mission-status" class="status-pill" aria-live="polite">
+        Missão: —
+      </span>
+    </div>
+    <button id="btn-sound" type="button" class="btn-sound" title="Ativar/desativar som" aria-label="Ativar ou desativar efeitos sonoros">🔊</button>
+    <button id="btn-cases" type="button" class="btn btn-secondary btn-cases">Trocar cenário</button>
+  </header>
+
+  <main class="app-grid">
+    <!-- Painel esquerdo: briefing e esquema do banco -->
+    <section class="panel panel-briefing" aria-label="Briefing do cenário">
+      <h2 id="briefing-panel-title" class="panel-title">Cenário</h2>
+      <div class="panel-body" id="briefing-content">
+        <p class="placeholder-text">Nenhuma missão carregada.</p>
+      </div>
+      <details class="schema-section">
+        <summary>Esquema do banco</summary>
+        <div id="schema-content" class="schema-body">
+          <p class="placeholder-text">O esquema aparecerá aqui após o carregamento do banco.</p>
+        </div>
+      </details>
+    </section>
+
+    <!-- Painel central: editor e resultados -->
+    <section class="panel panel-editor" aria-label="Editor de query e resultados">
+      <h2 id="editor-panel-title" class="panel-title">Análise SQL</h2>
+      <div class="panel-body">
+        <div class="editor-section">
+          <label for="sql-editor" class="editor-label">Query SQL</label>
+          <textarea
+            id="sql-editor"
+            class="sql-editor"
+            placeholder="Escreva sua query aqui…"
+            spellcheck="false"
+            autocomplete="off"
+            aria-describedby="editor-help"
+          ></textarea>
+          <p id="editor-help" class="editor-help">
+            Use SELECT ou WITH para consultar o banco.
+          </p>
+          <div class="editor-actions">
+            <button id="btn-run" type="button" class="btn btn-primary" disabled>Executar</button>
+            <button id="btn-clear" type="button" class="btn btn-secondary" disabled>Limpar</button>
+            <button id="btn-next" type="button" class="btn btn-success" hidden>Próxima missão</button>
+            <button id="btn-reset" type="button" class="btn btn-danger-outline">Reiniciar progresso</button>
+            <button id="btn-sandbox" type="button" class="btn btn-secondary">Sandbox</button>
+            <button id="btn-mission" type="button" class="btn btn-secondary" hidden>Voltar às missões</button>
+            <button id="btn-schema" type="button" class="btn btn-secondary" hidden>Mostrar esquema</button>
+            <button id="btn-er" type="button" class="btn btn-er">Diagrama ER</button>
+          </div>
+        </div>
+        <div class="results-section">
+          <h3 class="results-title">Resultados</h3>
+          <div id="results-container" class="results-container">
+            <p class="placeholder-text">Os resultados aparecerão aqui.</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Painel direito: dicas, progresso e evidências -->
+    <section class="panel panel-sidebar" aria-label="Dicas, progresso e evidências">
+      <h2 class="panel-title">Progresso</h2>
+      <div class="panel-body">
+        <div class="progress-section">
+          <h3 class="section-subtitle">Progresso</h3>
+          <div id="progress-display" class="progress-display">
+            <p class="placeholder-text">Nenhuma missão concluída ainda.</p>
+          </div>
+        </div>
+        <div class="hints-section">
+          <h3 class="section-subtitle">Dicas</h3>
+          <div id="hints-display" class="hints-display">
+            <p class="placeholder-text">As dicas aparecerão aqui durante uma missão.</p>
+          </div>
+          <button id="btn-hint" type="button" class="btn btn-secondary" disabled>Pedir dica</button>
+        </div>
+        <div class="evidence-section">
+          <h3 class="section-subtitle">Evidências</h3>
+          <div id="evidence-display" class="evidence-display">
+            <p class="placeholder-text">Nenhuma evidência coletada ainda.</p>
+          </div>
+        </div>
+        <div class="timeline-section" id="timeline-section" hidden>
+          <h3 class="section-subtitle">Linha do Tempo</h3>
+          <div id="timeline-display" class="timeline-display">
+            <p class="placeholder-text">Complete missões para desbloquear eventos.</p>
+          </div>
+          <button id="btn-timeline-check" type="button" class="btn btn-secondary" disabled>Verificar ordem</button>
+        </div>
+        <div class="suspect-section" id="suspect-section" hidden>
+          <h3 class="section-subtitle">Suspeitos</h3>
+          <div id="suspect-display" class="suspect-display">
+            <p class="placeholder-text">Nenhum suspeito identificado ainda.</p>
+          </div>
+        </div>
+        <div class="graph-section" id="graph-section" hidden>
+          <h3 class="section-subtitle">Rede de Conexões</h3>
+          <div id="graph-display" class="graph-display">
+            <p class="placeholder-text">Complete missões para revelar a rede de evidências.</p>
+          </div>
+          <p class="graph-hint">Nós ativos = evidências descobertas.</p>
+        </div>
+        <div class="interrogation-section" id="interrogation-section" hidden>
+          <button id="btn-start-interrogation" type="button" class="btn btn-primary">Iniciar interrogatório</button>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <!-- Abas para mobile -->
+  <nav class="tabs-nav" id="tabs-nav" hidden>
+    <button id="briefing-tab-label" class="tab-btn active" data-tab="briefing" type="button">Cenário</button>
+    <button class="tab-btn" data-tab="editor" type="button">Editor</button>
+    <button class="tab-btn" data-tab="sidebar" type="button">Dicas &amp; Evidências</button>
+  </nav>
+
+  <footer class="app-footer">
+    <p>SQL Detective — jogo educacional de SQL. Dados fictícios.</p>
+  </footer>
+
+  <!-- Modal de interrogatório -->
+  <div id="interrogation-modal" class="modal-overlay" hidden role="dialog" aria-modal="true" aria-labelledby="interrogation-title">
+    <div class="modal-dialog modal-interrogation">
+      <h3 id="interrogation-title">Interrogatório</h3>
+      <div id="interrogation-suspect-name" class="interrogation-suspect-name"></div>
+      <div id="interrogation-statement" class="interrogation-statement"></div>
+      <div id="interrogation-evidence-list" class="interrogation-evidence-list"></div>
+      <div id="interrogation-feedback" class="interrogation-feedback"></div>
+      <div class="modal-actions">
+        <button id="btn-interrogation-close" type="button" class="btn btn-secondary">Fechar</button>
+      </div>
+    </div>
+  </div>
+
+  <script type="module" src="src/app.js"></script>
+
+  <!-- Modal de conclusão do MVP -->
+  <div id="conclusion-modal" class="modal-overlay" hidden>
+    <div class="modal-dialog modal-conclusion">
+      <h3 id="conclusion-title">Cenário concluído</h3>
+      <div id="conclusion-body"></div>
+      <div class="modal-actions">
+        <button id="btn-conclusion-close" type="button" class="btn btn-primary">Continuar</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal de confirmação: reiniciar progresso -->
+  <div id="reset-modal" class="modal-overlay" hidden>
+    <div class="modal-dialog">
+      <h3>Reiniciar progresso?</h3>
+      <p>Todo o seu progresso (estrelas, pontuação e evidências) será apagado. Esta ação não pode ser desfeita.</p>
+      <div class="modal-actions">
+        <button id="btn-reset-cancel" type="button" class="btn btn-secondary">Cancelar</button>
+        <button id="btn-reset-confirm" type="button" class="btn btn-danger">Sim, reiniciar</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal do diagrama ER -->
+  <div id="er-modal" class="modal-overlay" hidden>
+    <div class="modal-dialog" style="max-width: 720px;">
+      <h3>Diagrama ER</h3>
+      <p id="er-description">Tabelas, colunas e relações do banco de dados do cenário atual.</p>
+      <div id="er-diagram-content" class="er-diagram-container"></div>
+      <div class="er-legend">
+        <span class="er-legend-item"><span class="er-legend-dot pk"></span> Chave primária (PK)</span>
+        <span class="er-legend-item"><span class="er-legend-dot fk"></span> Chave estrangeira (FK)</span>
+        <span class="er-legend-item"><span class="er-legend-dot relation"></span> Relação</span>
+      </div>
+      <div class="modal-actions">
+        <button id="btn-er-close" type="button" class="btn btn-primary">Fechar</button>
+      </div>
+    </div>
+  </div>
+</body>
+</html>

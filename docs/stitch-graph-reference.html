@@ -1,0 +1,312 @@
+<!DOCTYPE html>
+
+<html class="dark" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Suspect Graph Visualizer - SQL Detective</title>
+<!-- Tailwind CSS -->
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<!-- Material Symbols -->
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<!-- Google Fonts for IBM Plex Mono (Mapping to code-snippet) -->
+<link href="https://fonts.googleapis.com" rel="preconnect"/>
+<link crossorigin="" href="https://fonts.gstatic.com" rel="preconnect"/>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600;700&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<!-- Tailwind Configuration -->
+<script id="tailwind-config">
+      tailwind.config = {
+        darkMode: "class",
+        theme: {
+          extend: {
+            "colors": {
+                    "on-error": "#690005",
+                    "primary-container": "#00d4ff",
+                    "surface-container-lowest": "#080f12",
+                    "tertiary-fixed": "#ffe170",
+                    "inverse-primary": "#00677e",
+                    "tertiary": "#ffdd54",
+                    "tertiary-container": "#e5c000",
+                    "on-secondary-container": "#00622e",
+                    "secondary-container": "#05e777",
+                    "on-background": "#dde3e7",
+                    "primary-fixed-dim": "#3cd7ff",
+                    "on-surface": "#dde3e7",
+                    "on-primary": "#003642",
+                    "secondary": "#7dffa2",
+                    "surface-container-high": "#242b2e",
+                    "surface": "#0e1417",
+                    "on-tertiary-container": "#5f4f00",
+                    "surface-dim": "#0e1417",
+                    "secondary-fixed": "#62ff96",
+                    "on-error-container": "#ffdad6",
+                    "on-surface-variant": "#bbc9cf",
+                    "on-secondary-fixed-variant": "#005226",
+                    "on-tertiary": "#3a3000",
+                    "on-tertiary-fixed-variant": "#544600",
+                    "on-secondary": "#003918",
+                    "inverse-on-surface": "#2b3134",
+                    "secondary-fixed-dim": "#00e475",
+                    "on-secondary-fixed": "#00210b",
+                    "surface-container": "#1a2123",
+                    "surface-variant": "#2f3639",
+                    "primary-fixed": "#b4ebff",
+                    "outline-variant": "#3c494e",
+                    "on-primary-fixed-variant": "#004e5f",
+                    "surface-container-low": "#161d1f",
+                    "on-tertiary-fixed": "#221b00",
+                    "surface-bright": "#333a3d",
+                    "outline": "#859398",
+                    "on-primary-fixed": "#001f27",
+                    "on-primary-container": "#00586b",
+                    "inverse-surface": "#dde3e7",
+                    "error": "#ffb4ab",
+                    "error-container": "#93000a",
+                    "surface-tint": "#3cd7ff",
+                    "primary": "#a8e8ff",
+                    "background": "#0e1417",
+                    "tertiary-fixed-dim": "#e9c400",
+                    "surface-container-highest": "#2f3639"
+            },
+            "borderRadius": {
+                    "DEFAULT": "0.125rem",
+                    "lg": "0.25rem",
+                    "xl": "0.5rem",
+                    "full": "0.75rem"
+            },
+            "spacing": {
+                    "container-max": "1200px",
+                    "unit": "4px",
+                    "margin-mobile": "16px",
+                    "margin-desktop": "64px",
+                    "gutter": "24px"
+            },
+            "fontFamily": {
+                    "code-snippet": [
+                            "IBM Plex Mono"
+                    ],
+                    "body-lg": [
+                            "IBM Plex Mono"
+                    ],
+                    "headline-md": [
+                            "IBM Plex Mono"
+                    ],
+                    "display-lg-mobile": [
+                            "IBM Plex Mono"
+                    ],
+                    "display-lg": [
+                            "IBM Plex Mono"
+                    ],
+                    "body-md": [
+                            "IBM Plex Mono"
+                    ],
+                    "label-sm": [
+                            "IBM Plex Mono"
+                    ]
+            },
+            "fontSize": {
+                    "code-snippet": [
+                            "14px",
+                            {
+                                    "lineHeight": "1.4",
+                                    "fontWeight": "400"
+                            }
+                    ],
+                    "body-lg": [
+                            "18px",
+                            {
+                                    "lineHeight": "1.6",
+                                    "fontWeight": "400"
+                            }
+                    ],
+                    "headline-md": [
+                            "24px",
+                            {
+                                    "lineHeight": "1.3",
+                                    "fontWeight": "600"
+                            }
+                    ],
+                    "display-lg-mobile": [
+                            "32px",
+                            {
+                                    "lineHeight": "1.2",
+                                    "fontWeight": "700"
+                            }
+                    ],
+                    "display-lg": [
+                            "48px",
+                            {
+                                    "lineHeight": "1.1",
+                                    "letterSpacing": "-0.02em",
+                                    "fontWeight": "700"
+                            }
+                    ],
+                    "body-md": [
+                            "16px",
+                            {
+                                    "lineHeight": "1.5",
+                                    "fontWeight": "400"
+                            }
+                    ],
+                    "label-sm": [
+                            "12px",
+                            {
+                                    "lineHeight": "1.0",
+                                    "letterSpacing": "0.05em",
+                                    "fontWeight": "500"
+                            }
+                    ]
+            }
+          },
+        }
+      }
+    </script>
+<style>
+        /* Cyberpunk Terminal Scanlines */
+        .scanlines {
+            background: linear-gradient(to bottom, rgba(255,255,255,0), rgba(255,255,255,0) 50%, rgba(0, 0, 0, 0.2) 50%, rgba(0, 0, 0, 0.2));
+            background-size: 100% 4px;
+            pointer-events: none;
+        }
+
+        /* SVG Glow Filters */
+        .svg-neon-glow-cyan {
+            filter: drop-shadow(0 0 4px #00d4ff) drop-shadow(0 0 8px rgba(0, 212, 255, 0.4));
+        }
+        
+        .pulse-animation {
+            animation: pulse-border 2s infinite alternate;
+        }
+        
+        @keyframes pulse-border {
+            0% { box-shadow: 0 0 5px rgba(255, 180, 171, 0.4); }
+            100% { box-shadow: 0 0 15px rgba(255, 180, 171, 0.8); }
+        }
+    </style>
+</head>
+<body class="bg-surface-container-lowest text-on-surface h-screen flex justify-start overflow-hidden font-code-snippet">
+<!-- Simulated Game Background Environment (To contextualize the panel) -->
+<div class="fixed inset-0 z-0 bg-surface flex items-center justify-center opacity-30">
+
+</div>
+<!-- Side Panel (320px = w-80) -->
+<aside class="w-80 h-full relative z-10 flex flex-col bg-surface/80 backdrop-blur-xl border-r border-primary/30 shadow-[4px_0_24px_rgba(0,212,255,0.05)]">
+<!-- Scanline Overlay -->
+<div class="absolute inset-0 z-50 scanlines opacity-50 mix-blend-overlay"></div>
+<!-- Header -->
+<header class="p-gutter border-b border-primary/20 relative">
+<div class="flex items-center justify-between">
+<div class="flex flex-col gap-1">
+<span class="font-label-sm text-primary uppercase tracking-widest opacity-80">Module // Graph</span>
+<h1 class="font-headline-md text-on-surface">Suspect Visualizer</h1>
+</div>
+<span class="material-symbols-outlined text-primary/60">hub</span>
+</div>
+<!-- Decorative Header Elements -->
+<div class="absolute bottom-0 left-0 w-1/3 h-[2px] bg-primary blur-[1px]"></div>
+</header>
+<!-- Canvas Area (Graph) -->
+<main class="flex-1 relative overflow-hidden bg-surface-container-low/50">
+<!-- SVG Connections Layer -->
+<svg class="absolute inset-0 w-full h-full" xmlns="http://www.w3.org/2000/svg">
+<!-- Center to Top (Discovered/Active) -->
+<line class="stroke-primary svg-neon-glow-cyan" stroke-dasharray="4 4" stroke-width="2" x1="50%" x2="50%" y1="50%" y2="18%">
+<animate attributename="stroke-dashoffset" dur="1s" from="16" repeatcount="indefinite" to="0"></animate>
+</line>
+<!-- Center to Right (Discovered/Active) -->
+<line class="stroke-primary svg-neon-glow-cyan" stroke-dasharray="4 4" stroke-width="2" x1="50%" x2="82%" y1="50%" y2="50%">
+<animate attributename="stroke-dashoffset" dur="1s" from="16" repeatcount="indefinite" to="0"></animate>
+</line>
+<!-- Center to Bottom (Hidden/Inactive) -->
+<line class="stroke-outline-variant" stroke-dasharray="2 4" stroke-width="1" x1="50%" x2="50%" y1="50%" y2="82%"></line>
+<!-- Center to Left (Hidden/Inactive) -->
+<line class="stroke-outline-variant" stroke-dasharray="2 4" stroke-width="1" x1="50%" x2="18%" y1="50%" y2="50%"></line>
+</svg>
+<!-- Nodes Overlay Container -->
+<div class="absolute inset-0">
+<!-- Center Node: Suspect (Red, Glowing) -->
+<div class="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 flex flex-col items-center justify-center z-20">
+<div class="relative w-16 h-16 flex items-center justify-center pulse-animation rounded-full">
+<!-- Glow Behind -->
+<div class="absolute inset-0 bg-error blur-lg opacity-40 rounded-full"></div>
+<!-- Node Body -->
+<div class="relative w-full h-full bg-surface-container/90 border-2 border-error rounded-full flex items-center justify-center shadow-[inset_0_0_10px_rgba(255,180,171,0.2)]">
+<span class="material-symbols-outlined text-error font-bold" style="font-variation-settings: 'FILL' 1;">person_alert</span>
+</div>
+</div>
+<!-- Label -->
+<div class="mt-2 bg-error-container/20 border border-error/50 px-2 py-0.5 rounded backdrop-blur-sm">
+<span class="font-label-sm text-error uppercase font-bold tracking-widest drop-shadow-[0_0_2px_rgba(255,180,171,0.8)]">Suspect</span>
+</div>
+</div>
+<!-- Top Satellite: E-mail (Cyan, Active) -->
+<div class="absolute top-[18%] left-1/2 -translate-x-1/2 -translate-y-1/2 flex flex-col items-center justify-center z-10 group cursor-pointer">
+<div class="relative w-10 h-10 flex items-center justify-center rounded-full transition-transform group-hover:scale-110 duration-300">
+<!-- Glow Behind -->
+<div class="absolute inset-0 bg-primary blur-md opacity-30 rounded-full"></div>
+<!-- Node Body -->
+<div class="relative w-full h-full bg-surface-container/80 border border-primary rounded-full flex items-center justify-center shadow-[inset_0_0_8px_rgba(0,212,255,0.15)]">
+<span class="material-symbols-outlined text-primary text-sm">mail</span>
+</div>
+</div>
+<!-- Label -->
+<span class="mt-1 font-label-sm text-primary text-[10px] uppercase opacity-90 drop-shadow-[0_0_2px_rgba(0,212,255,0.5)]">E-mail</span>
+</div>
+<!-- Right Satellite: External Account (Cyan, Active) -->
+<div class="absolute top-1/2 left-[82%] -translate-x-1/2 -translate-y-1/2 flex flex-col items-center justify-center z-10 group cursor-pointer">
+<div class="relative w-10 h-10 flex items-center justify-center rounded-full transition-transform group-hover:scale-110 duration-300">
+<!-- Glow Behind -->
+<div class="absolute inset-0 bg-primary blur-md opacity-30 rounded-full"></div>
+<!-- Node Body -->
+<div class="relative w-full h-full bg-surface-container/80 border border-primary rounded-full flex items-center justify-center shadow-[inset_0_0_8px_rgba(0,212,255,0.15)]">
+<span class="material-symbols-outlined text-primary text-sm">account_balance</span>
+</div>
+</div>
+<!-- Label -->
+<span class="mt-1 font-label-sm text-primary text-[10px] uppercase opacity-90 drop-shadow-[0_0_2px_rgba(0,212,255,0.5)] text-center w-20 leading-tight">Ext Account</span>
+</div>
+<!-- Bottom Satellite: Access Log (Gray, Hidden) -->
+<div class="absolute top-[82%] left-1/2 -translate-x-1/2 -translate-y-1/2 flex flex-col items-center justify-center z-10 opacity-70">
+<div class="relative w-10 h-10 flex items-center justify-center rounded-full">
+<!-- Node Body -->
+<div class="relative w-full h-full bg-surface-container/40 border border-outline-variant border-dashed rounded-full flex items-center justify-center">
+<span class="material-symbols-outlined text-on-surface-variant text-sm">terminal</span>
+</div>
+</div>
+<!-- Label -->
+<span class="mt-1 font-label-sm text-on-surface-variant text-[10px] uppercase">Access Log</span>
+<span class="font-label-sm text-outline-variant text-[8px] mt-0.5">[Encrypted]</span>
+</div>
+<!-- Left Satellite: IP Address (Gray, Hidden) -->
+<div class="absolute top-1/2 left-[18%] -translate-x-1/2 -translate-y-1/2 flex flex-col items-center justify-center z-10 opacity-70">
+<div class="relative w-10 h-10 flex items-center justify-center rounded-full">
+<!-- Node Body -->
+<div class="relative w-full h-full bg-surface-container/40 border border-outline-variant border-dashed rounded-full flex items-center justify-center">
+<span class="material-symbols-outlined text-on-surface-variant text-sm">router</span>
+</div>
+</div>
+<!-- Label -->
+<span class="mt-1 font-label-sm text-on-surface-variant text-[10px] uppercase">Network</span>
+<span class="font-label-sm text-outline-variant text-[8px] mt-0.5">[Tracing...]</span>
+</div>
+</div>
+<!-- Corner Grid Decorators (Terminal Feel) -->
+<div class="absolute top-2 left-2 w-4 h-4 border-t border-l border-outline-variant/40"></div>
+<div class="absolute top-2 right-2 w-4 h-4 border-t border-r border-outline-variant/40"></div>
+<div class="absolute bottom-2 left-2 w-4 h-4 border-b border-l border-outline-variant/40"></div>
+<div class="absolute bottom-2 right-2 w-4 h-4 border-b border-r border-outline-variant/40"></div>
+</main>
+<!-- Footer / Legend -->
+<footer class="p-4 border-t border-outline-variant/30 bg-surface/90 relative z-20">
+<div class="flex items-center gap-2 bg-surface-container px-3 py-2 border border-outline-variant/20 rounded">
+<div class="w-2 h-2 rounded-full bg-primary shadow-[0_0_4px_#00d4ff]"></div>
+<span class="font-code-snippet text-[11px] text-on-surface-variant uppercase tracking-wide">Active nodes = discovered evidence</span>
+</div>
+<!-- Status Bar -->
+<div class="mt-4 flex justify-between items-center text-[10px] text-outline">
+<span class="flex items-center gap-1"><span class="w-1 h-1 bg-secondary rounded-full animate-pulse"></span> SYSTEM: ONLINE</span>
+<span>DB: CONNECTED</span>
+</div>
+</footer>
+</aside>
+</body></html>
