@@ -365,6 +365,106 @@ function validateCreateViewLevel(sql, level, db) {
 }
 
 /**
+ * Valida uma missão DDL (CREATE TABLE, CREATE INDEX, CREATE TRIGGER, INSERT...SELECT, UPDATE).
+ * Para missões que criam tabelas: executa o CREATE (deve retornar vazio), verifica que a
+ * tabela existe no sqlite_master, e confere a quantidade de linhas com expectedRows.
+ */
+function validateDdlLevel(sql, level, db) {
+  const execResult = executeQuery(sql, db, { allowDml: true, allowDdl: true, allowCreateView: true });
+
+  if (execResult.type === 'blocked') return { type: FEEDBACK_BLOCKED, message: execResult.message };
+  if (execResult.type === 'error') return { type: FEEDBACK_SQL_ERROR, message: execResult.message, result: execResult };
+
+  // CREATE TABLE/INDEX/TRIGGER não retornam linhas — isso é sucesso
+  if (execResult.type === 'empty') {
+    // Verifica se uma tabela foi criada (se level espera isso)
+    if (level.expectedColumns && level.expectedColumns.includes('id') && level.tables && level.tables.length > 0) {
+      // Verifica existência da tabela alvo
+      const targetTable = level.tables[level.tables.length - 1];
+      if (/^CREATE\s+TABLE\b/i.test(sql.trim())) {
+        const check = db.exec(`SELECT name FROM sqlite_master WHERE type = 'table' AND lower(name) = lower('${targetTable}');`);
+        if (check.length === 0 || check[0].values.length === 0) {
+          return { type: FEEDBACK_WRONG_RESULT, message: `A tabela ${targetTable} não foi criada. Verifique a sintaxe do CREATE TABLE.` };
+        }
+        // Verifica colunas esperadas
+        const colCheck = db.exec(`PRAGMA table_info(${targetTable});`);
+        if (colCheck.length > 0) {
+          const actualCols = colCheck[0].values.map(row => row[1]);
+          const missingCols = findMissingColumns(actualCols, level.expectedColumns);
+          if (missingCols.length > 0) {
+            return {
+              type: FEEDBACK_MISSING_COLUMNS,
+              message: `Colunas ausentes na tabela ${targetTable}: ${missingCols.join(', ')}. Colunas criadas: ${actualCols.join(', ')}.`,
+            };
+          }
+        }
+      }
+      // Verifica quantidade de linhas se expectedRows definido
+      if (level.expectedRows !== undefined && level.expectedRows > 0) {
+        const targetTable = level.tables[level.tables.length - 1];
+        const countCheck = db.exec(`SELECT COUNT(*) FROM ${targetTable};`);
+        if (countCheck.length > 0) {
+          const actualCount = countCheck[0].values[0][0];
+          if (actualCount < level.expectedRows) {
+            return {
+              type: FEEDBACK_WRONG_RESULT,
+              message: `A tabela ${targetTable} foi criada, mas tem ${actualCount} linhas. Esperavam-se pelo menos ${level.expectedRows}.`,
+            };
+          }
+        }
+      }
+    }
+
+    // Verifica conceitos obrigatórios
+    const missingConcepts = findMissingConcepts(sql, level.requiredConcepts);
+    if (missingConcepts.length > 0) {
+      return {
+        type: FEEDBACK_MISSING_CONCEPT,
+        message: `A operação foi executada com sucesso, mas a missão requer: ${missingConcepts.join(', ')}.`,
+        missingConcepts,
+      };
+    }
+
+    return {
+      type: FEEDBACK_CORRECT,
+      message: `Missão concluída! ${level.explanation}`,
+      result: execResult,
+    };
+  }
+
+  // Se retornou linhas (ex: SELECT após CREATE), verifica normalmente
+  if (execResult.type === 'ok') {
+    const missingCols = findMissingColumns(execResult.columns, level.expectedColumns);
+    if (missingCols.length > 0) {
+      return {
+        type: FEEDBACK_MISSING_COLUMNS,
+        message: `Colunas esperadas ausentes: ${missingCols.join(', ')}.`,
+        result: execResult,
+        missingColumns: missingCols,
+      };
+    }
+
+    const missingConcepts = findMissingConcepts(sql, level.requiredConcepts);
+    if (missingConcepts.length > 0) {
+      return {
+        type: FEEDBACK_MISSING_CONCEPT,
+        message: `O resultado está correto, mas a missão requer: ${missingConcepts.join(', ')}.`,
+        result: execResult,
+        missingConcepts,
+      };
+    }
+
+    return {
+      type: FEEDBACK_CORRECT,
+      message: `Missão concluída! ${level.explanation}`,
+      result: execResult,
+    };
+  }
+
+  return { type: FEEDBACK_WRONG_RESULT, message: 'A operação não produziu o resultado esperado.', result: execResult };
+}
+
+/**
  * Valida a execução de uma query contra uma missão.
  *
  * @param {string} sql query do jogador
@@ -375,6 +475,10 @@ function validateCreateViewLevel(sql, level, db) {
 export function validateLevel(sql, level, db) {
   if (level?.executionMode === 'create_view') {
     return validateCreateViewLevel(sql, level, db);
+  }
+
+  if (level?.executionMode === 'ddl') {
+    return validateDdlLevel(sql, level, db);
   }
 
   // 1. Executa a query

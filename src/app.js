@@ -69,9 +69,9 @@ import { renderERDiagram } from './er-diagram.js';
 import { getCourseContentById } from './course-content.js';
 import { buildHintContext, requestAiHint } from './ai-hints.js';
 import { getUnlockedEvents, normalizeOrder, moveEvent, checkTimelineBonus } from './timeline.js';
+import { showCertificateModal } from './certificate.js';
 import { deriveSuspicion } from './suspect-meter.js';
-import { startInterrogation, presentEvidence } from './interrogation.js';
-import { initSfx, setSfxEnabled, isSfxEnabled, playTypingSound, playAlertSound, playSuccessSound } from './sfx.js';
+import { startInterrogation, presentEvidence } from './interrogation.js';import { initSfx, setSfxEnabled, isSfxEnabled, playTypingSound, playAlertSound, playSuccessSound } from './sfx.js';
 
 function getActiveCase() {
   return getCaseById(state.currentCase) || getCaseById('case001');
@@ -739,7 +739,11 @@ function initBasicEvents() {
       if (!db) { setResults('<div class="feedback feedback-error">Banco não carregado.</div>'); return; }
 
       if (state.sandboxMode) {
-        const result = executeQuery(sql, db, { allowDml: state.currentCase === 'case004' });
+        const isModelingCase = ['case005', 'case006'].includes(state.currentCase);
+        const result = executeQuery(sql, db, {
+          allowDml: state.currentCase === 'case004' || isModelingCase,
+          allowDdl: isModelingCase,
+        });
         renderResults(result);
         return;
       }
@@ -1166,7 +1170,7 @@ function initBasicEvents() {
             <p>${activeCase.CASE_CONCLUSION.story}</p>
             <p style="margin-top: 12px;">${activeCase.CASE_CONCLUSION.nextSteps}</p>
           `;
-          showConclusionModal(
+showConclusionModal(
             `${activeCase.CASE_INTRO.subtitle?.toUpperCase() || 'CASO #001'} · ENCERRADO`,
             conclusionBody,
             {
@@ -1175,7 +1179,20 @@ function initBasicEvents() {
               missions: `${state.completedLevels.length}/${activeCase.getTotalLevels()}`,
             }
           );
-        }, 1500);
+          // Adiciona botão de certificado na tela de conclusão
+          setTimeout(() => {
+            const modal = document.getElementById('conclusion-modal');
+            if (modal) {
+              const certBtn = document.createElement('button');
+              certBtn.className = 'action-btn';
+              certBtn.textContent = '🏆 Ver Certificado';
+              certBtn.addEventListener('click', () => {
+                showCertificateModal(activeCase);
+              });
+              const body = document.getElementById('conclusion-body') || modal.querySelector('.modal-body');
+              body?.appendChild(certBtn);
+            }
+          }, 1600);        }, 1500);
       } else {
         const unlockedEvidences = getUnlockedEvents(activeCase.GAMEPLAY.timeline, state.completedLevels);
         showInterrogationModal(fc, state.interrogation, unlockedEvidences);

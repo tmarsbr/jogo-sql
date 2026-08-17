@@ -174,6 +174,17 @@ function isCreateViewStatement(sql) {
 }
 
 /**
+ * Reconhece comandos DDL seguros para os casos de modelagem (005/006):
+ * CREATE TABLE, CREATE INDEX, CREATE TRIGGER.
+ * Não permite DROP, ALTER ou ATTACH.
+ * @param {string} sql SQL normalizado
+ * @returns {boolean}
+ */
+function isDdlStatement(sql) {
+  return /^CREATE\s+(?:TABLE(?:\s+IF\s+NOT\s+EXISTS)?|INDEX(?:\s+IF\s+NOT\s+EXISTS)?|TRIGGER)\b/i.test(sql);
+}
+
+/**
  * Verifica se o SQL contém palavras-chave bloqueadas.
  * Busca por palavras inteiras (não substrings).
  * @param {string} sql SQL sem comentários
@@ -271,7 +282,8 @@ export function executeQuery(sql, db, options = {}) {
   const firstKw = getFirstKeyword(trimmed);
   const writable = Boolean(options.allowDml) && ['INSERT', 'UPDATE', 'DELETE'].includes(firstKw);
   const createView = Boolean(options.allowCreateView) && isCreateViewStatement(trimmed);
-  if (firstKw !== 'SELECT' && firstKw !== 'WITH' && !writable && !createView) {
+  const ddl = Boolean(options.allowDdl) && isDdlStatement(trimmed);
+  if (firstKw !== 'SELECT' && firstKw !== 'WITH' && !writable && !createView && !ddl) {
     const allowed = options.allowCreateView ? 'SELECT, WITH ou CREATE VIEW' : 'SELECT ou WITH';
     return { type: RESULT_BLOCKED, columns: [], rows: [], rowCount: 0, message: `Comando "${firstKw}" não permitido. Use ${allowed}.` };
   }
@@ -280,6 +292,7 @@ export function executeQuery(sql, db, options = {}) {
   const allowedKeywords = [];
   if (writable) allowedKeywords.push(firstKw);
   if (createView) allowedKeywords.push('CREATE');
+  if (ddl) allowedKeywords.push('CREATE', 'TABLE', 'INDEX', 'TRIGGER', 'ON', 'AFTER', 'BEFORE', 'UPDATE', 'INSERT', 'DELETE', 'FOR', 'EACH', 'ROW', 'BEGIN', 'END', 'OLD', 'NEW');
   const blocked = findBlockedKeyword(trimmed, allowedKeywords);
   if (blocked) {
     return { type: RESULT_BLOCKED, columns: [], rows: [], rowCount: 0, message: `Comando "${blocked}" não é permitido neste jogo.` };

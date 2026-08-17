@@ -22,6 +22,8 @@ import { SCHEMA_SQL as PROJ_FINANCEIRO_SCHEMA_SQL, SEED_SQL as PROJ_FINANCEIRO_S
 import { SCHEMA_SQL as PROJ_SUPORTE_SCHEMA_SQL, SEED_SQL as PROJ_SUPORTE_SEED_SQL } from './cases/proj-suporte/db-seed.js';
 import { SCHEMA_SQL as PROJ_PUBLICO_SCHEMA_SQL, SEED_SQL as PROJ_PUBLICO_SEED_SQL } from './cases/proj-publico/db-seed.js';
 import { SCHEMA_SQL as PROJ_FUTEBOL_SCHEMA_SQL, SEED_SQL as PROJ_FUTEBOL_SEED_SQL } from './cases/proj-futebol/db-seed.js';
+import { SCHEMA_SQL as CASE005_SCHEMA_SQL, SEED_SQL as CASE005_SEED_SQL } from './cases/case005/db-seed.js';
+import { SCHEMA_SQL as CASE006_SCHEMA_SQL, SEED_SQL as CASE006_SEED_SQL } from './cases/case006/db-seed.js';
 
 /* --- Caminho do wasm --- */
 const WASM_PATH = 'vendor/sql-wasm.wasm';
@@ -244,6 +246,8 @@ function getCaseDatabaseDefinition(caseId) {
     'proj-suporte': { schema: PROJ_SUPORTE_SCHEMA_SQL, seed: PROJ_SUPORTE_SEED_SQL },
     'proj-publico': { schema: PROJ_PUBLICO_SCHEMA_SQL, seed: PROJ_PUBLICO_SEED_SQL },
     'proj-futebol': { schema: PROJ_FUTEBOL_SCHEMA_SQL, seed: PROJ_FUTEBOL_SEED_SQL },
+    case005: { schema: CASE005_SCHEMA_SQL, seed: CASE005_SEED_SQL },
+    case006: { schema: CASE006_SCHEMA_SQL, seed: CASE006_SEED_SQL },
   };
   return definitions[caseId] || definitions.case001;
 }

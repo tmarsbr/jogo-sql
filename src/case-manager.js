@@ -18,6 +18,8 @@ import * as projFinanceiroLevels from './cases/proj-financeiro/levels.js';
 import * as projSuporteLevels from './cases/proj-suporte/levels.js';
 import * as projPublicoLevels from './cases/proj-publico/levels.js';
 import * as projFutebolLevels from './cases/proj-futebol/levels.js';
+import * as case005Levels from './cases/case005/levels.js';
+import * as case006Levels from './cases/case006/levels.js';
 
 export const CASE_REGISTRY = [
   {
@@ -115,6 +117,18 @@ export const CASE_REGISTRY = [
     title: 'Futebol: Scouts & Finalização', category: 'Sports Analytics',
     description: 'Avalie artilharia, pontaria de finalizações, criação de jogadas e ranking de participação em gols.',
     ...projFutebolLevels,
+  },
+  {
+    id: 'case005', number: '05', icon: '🗂️', lockedByDefault: true, type: 'investigation',
+    title: 'A Planilha do Inferno', category: 'Normalização e Relacionamentos',
+    description: 'Transforme uma planilha bagunçada em um modelo OLTP normalizado até a 3FN, com PKs, FKs e cardinalidades corretas.',
+    ...case005Levels,
+  },
+  {
+    id: 'case006', number: '06', icon: '🏢', lockedByDefault: true, type: 'investigation',
+    title: 'TechBrasil: Sua Primeira Semana', category: 'OLTP, ETL e Data Warehouse',
+    description: 'Construa o Data Warehouse completo: limpe dados sujos, monte o ETL, crie o star schema e entregue relatórios para o CFO.',
+    ...case006Levels,
   },
 ];
 

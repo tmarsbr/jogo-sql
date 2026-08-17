@@ -18,6 +18,8 @@ const KNOWN_CASE_IDS = new Set([
   'proj-suporte',
   'proj-publico',
   'proj-futebol',
+  'case005',
+  'case006',
 ]);
 
 function getDefaultCaseProgress() {
