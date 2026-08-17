@@ -184,20 +184,23 @@ export function renderHeaderProgress(completedCount, totalCount) {
 
 /* --- Rail de Missões --- */
 
-export function renderMissionRail(allLevels, currentLevelId, completedLevels, onSelect, lessonsRead = []) {
+export function renderMissionRail(allLevels, currentLevelId, completedLevels, onSelect, lessonsRead = [], lockedLevelIds = []) {
   const container = dom.railContainer || $('#rail-buttons-container');
   if (!container || !Array.isArray(allLevels)) return;
+  const locked = new Set(lockedLevelIds);
 
   container.innerHTML = allLevels.map(level => {
     const isCurrent = level.id === currentLevelId;
     const isCompleted = completedLevels.includes(level.id);
+    const isLocked = locked.has(level.id);
     const isLessonRead = Boolean(level.courseRefs?.[0] && lessonsRead.includes(level.courseRefs[0]));
     let cls = 'rail-btn';
     if (isCurrent) cls += ' active';
     else if (isCompleted) cls += ' completed';
+    if (isLocked) cls += ' locked';
     if (isLessonRead) cls += ' lesson-read';
-    const title = `${level.title}${isLessonRead ? ' · aula lida' : ''}`;
-    return `<button type="button" class="${cls}" data-level-id="${level.id}" title="${escapeHtml(title)}">${level.id}${isLessonRead ? '<span class="rail-lesson-check" aria-hidden="true">✓</span><span class="sr-only"> Aula lida</span>' : ''}</button>`;
+    const title = `${level.title}${isLessonRead ? ' · aula lida' : ''}${isLocked ? ' · conclua as missões anteriores' : ''}`;
+    return `<button type="button" class="${cls}" data-level-id="${level.id}" title="${escapeHtml(title)}"${isLocked ? ' disabled aria-disabled="true"' : ''}>${level.id}${isLessonRead ? '<span class="rail-lesson-check" aria-hidden="true">✓</span><span class="sr-only"> Aula lida</span>' : ''}</button>`;
   }).join('');
 
   container.querySelectorAll('[data-level-id]').forEach(btn => {

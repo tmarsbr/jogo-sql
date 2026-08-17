@@ -364,104 +364,159 @@ function validateCreateViewLevel(sql, level, db) {
   };
 }
 
+const MUTATION_OPTIONS = { allowDml: true, allowDdl: true };
+
+function rollbackSavepoint(db, name) {
+  try { db.run(`ROLLBACK TO ${name};`); } catch { /* tentativa já encerrada */ }
+  try { db.run(`RELEASE ${name};`); } catch { /* tentativa já encerrada */ }
+}
+
 /**
- * Valida uma missão DDL (CREATE TABLE, CREATE INDEX, CREATE TRIGGER, INSERT...SELECT, UPDATE).
- * Para missões que criam tabelas: executa o CREATE (deve retornar vazio), verifica que a
- * tabela existe no sqlite_master, e confere a quantidade de linhas com expectedRows.
+ * Executa uma mutação e sua consulta de conferência dentro de um savepoint.
+ * A tentativa sempre é desfeita: somente uma solução validada é executada de
+ * novo e persistida. Assim, erros e respostas quase corretas não contaminam as
+ * próximas tentativas nem as missões seguintes.
+ */
+function previewMutation(sql, verificationQuery, db, savepointName, exerciseQuery = '') {
+  try {
+    db.run(`SAVEPOINT ${savepointName};`);
+    const operation = executeQuery(sql, db, MUTATION_OPTIONS);
+    if (operation.type !== 'empty') {
+      rollbackSavepoint(db, savepointName);
+      return { operation, exercise: null, verification: null };
+    }
+
+    let exercise = null;
+    if (exerciseQuery) {
+      exercise = executeQuery(exerciseQuery, db, MUTATION_OPTIONS);
+      if (exercise.type !== 'empty') {
+        rollbackSavepoint(db, savepointName);
+        return { operation, exercise, verification: null };
+      }
+    }
+
+    const verification = executeQuery(verificationQuery, db);
+    rollbackSavepoint(db, savepointName);
+    return { operation, exercise, verification };
+  } catch (error) {
+    rollbackSavepoint(db, savepointName);
+    return {
+      operation: { type: 'error', columns: [], rows: [], rowCount: 0, message: error.message || 'Falha ao validar a operação.' },
+      exercise: null,
+      verification: null,
+    };
+  }
+}
+
+/**
+ * Valida missões mutáveis (INSERT, UPDATE, CREATE INDEX e CREATE TRIGGER).
+ * O efeito produzido pelo jogador é comparado ao efeito da solução canônica,
+ * ambos em transações descartáveis. Apenas resultados equivalentes persistem.
  */
 function validateDdlLevel(sql, level, db) {
-  const execResult = executeQuery(sql, db, { allowDml: true, allowDdl: true, allowCreateView: true });
+  if (!level?.verificationQuery || !level?.expectedResultQuery || !level?.referenceQuery) {
+    return { type: FEEDBACK_SQL_ERROR, message: 'Erro interno: configuração incompleta da missão de alteração.' };
+  }
 
-  if (execResult.type === 'blocked') return { type: FEEDBACK_BLOCKED, message: execResult.message };
-  if (execResult.type === 'error') return { type: FEEDBACK_SQL_ERROR, message: execResult.message, result: execResult };
-
-  // CREATE TABLE/INDEX/TRIGGER não retornam linhas — isso é sucesso
-  if (execResult.type === 'empty') {
-    // Verifica se uma tabela foi criada (se level espera isso)
-    if (level.expectedColumns && level.expectedColumns.includes('id') && level.tables && level.tables.length > 0) {
-      // Verifica existência da tabela alvo
-      const targetTable = level.tables[level.tables.length - 1];
-      if (/^CREATE\s+TABLE\b/i.test(sql.trim())) {
-        const check = db.exec(`SELECT name FROM sqlite_master WHERE type = 'table' AND lower(name) = lower('${targetTable}');`);
-        if (check.length === 0 || check[0].values.length === 0) {
-          return { type: FEEDBACK_WRONG_RESULT, message: `A tabela ${targetTable} não foi criada. Verifique a sintaxe do CREATE TABLE.` };
-        }
-        // Verifica colunas esperadas
-        const colCheck = db.exec(`PRAGMA table_info(${targetTable});`);
-        if (colCheck.length > 0) {
-          const actualCols = colCheck[0].values.map(row => row[1]);
-          const missingCols = findMissingColumns(actualCols, level.expectedColumns);
-          if (missingCols.length > 0) {
-            return {
-              type: FEEDBACK_MISSING_COLUMNS,
-              message: `Colunas ausentes na tabela ${targetTable}: ${missingCols.join(', ')}. Colunas criadas: ${actualCols.join(', ')}.`,
-            };
-          }
-        }
-      }
-      // Verifica quantidade de linhas se expectedRows definido
-      if (level.expectedRows !== undefined && level.expectedRows > 0) {
-        const targetTable = level.tables[level.tables.length - 1];
-        const countCheck = db.exec(`SELECT COUNT(*) FROM ${targetTable};`);
-        if (countCheck.length > 0) {
-          const actualCount = countCheck[0].values[0][0];
-          if (actualCount < level.expectedRows) {
-            return {
-              type: FEEDBACK_WRONG_RESULT,
-              message: `A tabela ${targetTable} foi criada, mas tem ${actualCount} linhas. Esperavam-se pelo menos ${level.expectedRows}.`,
-            };
-          }
-        }
-      }
-    }
-
-    // Verifica conceitos obrigatórios
-    const missingConcepts = findMissingConcepts(sql, level.requiredConcepts);
-    if (missingConcepts.length > 0) {
-      return {
-        type: FEEDBACK_MISSING_CONCEPT,
-        message: `A operação foi executada com sucesso, mas a missão requer: ${missingConcepts.join(', ')}.`,
-        missingConcepts,
-      };
-    }
-
+  const missingConcepts = findMissingConcepts(sql, level.requiredConcepts || []);
+  if (missingConcepts.length > 0) {
     return {
-      type: FEEDBACK_CORRECT,
-      message: `Missão concluída! ${level.explanation}`,
-      result: execResult,
+      type: FEEDBACK_MISSING_CONCEPT,
+      message: `Esta missão requer: ${missingConcepts.join(', ')}.`,
+      missingConcepts,
     };
   }
 
-  // Se retornou linhas (ex: SELECT após CREATE), verifica normalmente
-  if (execResult.type === 'ok') {
-    const missingCols = findMissingColumns(execResult.columns, level.expectedColumns);
-    if (missingCols.length > 0) {
-      return {
-        type: FEEDBACK_MISSING_COLUMNS,
-        message: `Colunas esperadas ausentes: ${missingCols.join(', ')}.`,
-        result: execResult,
-        missingColumns: missingCols,
-      };
-    }
-
-    const missingConcepts = findMissingConcepts(sql, level.requiredConcepts);
-    if (missingConcepts.length > 0) {
-      return {
-        type: FEEDBACK_MISSING_CONCEPT,
-        message: `O resultado está correto, mas a missão requer: ${missingConcepts.join(', ')}.`,
-        result: execResult,
-        missingConcepts,
-      };
-    }
-
+  const playerAttempt = previewMutation(sql, level.verificationQuery, db, 'sql_detective_player', level.exerciseQuery);
+  if (playerAttempt.operation.type === 'blocked') {
+    return { type: FEEDBACK_BLOCKED, message: playerAttempt.operation.message };
+  }
+  if (playerAttempt.operation.type === 'error') {
+    return { type: FEEDBACK_SQL_ERROR, message: playerAttempt.operation.message, result: playerAttempt.operation };
+  }
+  if (playerAttempt.operation.type !== 'empty') {
     return {
-      type: FEEDBACK_CORRECT,
-      message: `Missão concluída! ${level.explanation}`,
-      result: execResult,
+      type: FEEDBACK_WRONG_RESULT,
+      message: 'A missão requer uma única operação de alteração, sem um SELECT adicional.',
+      result: playerAttempt.operation,
     };
   }
 
-  return { type: FEEDBACK_WRONG_RESULT, message: 'A operação não produziu o resultado esperado.', result: execResult };
+  if (playerAttempt.exercise && playerAttempt.exercise.type !== 'empty') {
+    return {
+      type: playerAttempt.exercise.type === 'blocked' ? FEEDBACK_BLOCKED : FEEDBACK_SQL_ERROR,
+      message: `A operação criada falhou no teste funcional. ${playerAttempt.exercise.message}`,
+      result: playerAttempt.exercise,
+    };
+  }
+
+  const expectedAttempt = previewMutation(level.referenceQuery, level.expectedResultQuery, db, 'sql_detective_reference', level.exerciseQuery);
+  if (
+    expectedAttempt.operation.type !== 'empty'
+    || (expectedAttempt.exercise && expectedAttempt.exercise.type !== 'empty')
+    || expectedAttempt.verification?.type !== 'ok'
+  ) {
+    const detail = expectedAttempt.operation.type !== 'empty'
+      ? expectedAttempt.operation.message
+      : expectedAttempt.exercise && expectedAttempt.exercise.type !== 'empty'
+        ? expectedAttempt.exercise.message
+        : expectedAttempt.verification?.message || 'resultado de conferência vazio';
+    return { type: FEEDBACK_SQL_ERROR, message: `Erro interno: a solução de referência falhou. ${detail}` };
+  }
+
+  const actualResult = playerAttempt.verification;
+  const expectedResult = expectedAttempt.verification;
+  if (actualResult?.type !== 'ok') {
+    return {
+      type: FEEDBACK_WRONG_RESULT,
+      message: `A operação foi executada, mas não produziu o estado solicitado. ${actualResult?.message || ''}`.trim(),
+      result: actualResult || playerAttempt.operation,
+    };
+  }
+
+  const expectedColumns = Array.isArray(level.expectedColumns) ? level.expectedColumns : expectedResult.columns;
+  const missingCols = findMissingColumns(actualResult.columns, expectedColumns);
+  if (missingCols.length > 0) {
+    return {
+      type: FEEDBACK_MISSING_COLUMNS,
+      message: `Colunas esperadas ausentes na conferência: ${missingCols.join(', ')}.`,
+      result: actualResult,
+      missingColumns: missingCols,
+    };
+  }
+
+  if (actualResult.columns.length > expectedColumns.length) {
+    const expectedNormalized = expectedColumns.map(normalizeColumnName);
+    const extraCols = actualResult.columns.filter(column => !expectedNormalized.includes(normalizeColumnName(column)));
+    return {
+      type: FEEDBACK_WRONG_RESULT,
+      message: `A operação produziu colunas adicionais não solicitadas: ${extraCols.join(', ')}.`,
+      result: actualResult,
+    };
+  }
+
+  if (!compareResults(actualResult.rows, expectedResult.rows, actualResult.columns, expectedResult.columns)) {
+    return {
+      type: FEEDBACK_WRONG_RESULT,
+      message: `O estado final não corresponde ao esperado. Foram encontradas ${actualResult.rowCount} linha(s), mas eram esperadas ${expectedResult.rowCount}.`,
+      result: actualResult,
+    };
+  }
+
+  const committed = executeQuery(sql, db, MUTATION_OPTIONS);
+  if (committed.type !== 'empty') {
+    return {
+      type: committed.type === 'blocked' ? FEEDBACK_BLOCKED : FEEDBACK_SQL_ERROR,
+      message: committed.message,
+      result: committed,
+    };
+  }
+
+  return {
+    type: FEEDBACK_CORRECT,
+    message: `Missão concluída! ${level.explanation}`,
+    result: actualResult,
+  };
 }
 
 /**

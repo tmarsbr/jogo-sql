@@ -654,6 +654,27 @@
 
 ---
 
+## Trilha Integrada — Normalização, ETL e Data Warehouse (Casos 005–006)
+
+| Arquivo | Conteúdo integrado | Aplicação no jogo |
+|---|---|---|
+| `Aula 01 - Normalização - Introdução e o Problema da Planilha do Inferno.md` | Anomalias e redundância | Introdução do Caso 005 |
+| `Aula 02 - Normalização - Primeira Forma Normal (1FN) e Chave Primária.md` | 1FN, atomicidade e chaves | Missões 1–4 do Caso 005 |
+| `Aula 03 - Normalização - Segunda Forma Normal (2FN) e Dependência Parcial.md` | 2FN e chave composta | Missões 5–7 do Caso 005 |
+| `Aula 04 - Normalização - Terceira Forma Normal (3FN) e Dependência Transitiva.md` | 3FN | Missões 8–9 do Caso 005 |
+| `Aula 05 - Relacionamentos - PK, FK e Cardinalidade (1N, N-N).md` | PK, FK, 1:N e N:N | Missões 10–12 do Caso 005 |
+| `Aula 06 - Normalização - O Teste da Realidade e Fechamento do Caso 005.md` | Validação do modelo | Missões 13–14 do Caso 005 |
+| `Aula 07 - OLTP vs OLAP - Entendendo os Dois Mundos.md` | Arquiteturas transacional e analítica | Introdução do Caso 006 |
+| `Aula 08 - Fase 1 - Explorando o Modelo OLTP.md` | Consultas no OLTP | Missões 1–2 do Caso 006 |
+| `Aula 09 - Fase 2 - Limpeza de Dados (Data Quality).md` | Limpeza e conversão | Missões 3–4 do Caso 006 |
+| `Aula 10 - Fase 3 - ETL (Extração Transformação e Carga).md` | ETL e carga incremental | Missões 5–6 do Caso 006 |
+| `Aula 11 - Fase 4 - Modelagem Dimensional (Star Schema).md` | Dimensões, fato e SCD | Missões 7–9 do Caso 006 |
+| `Aula 12 - Fase 5 - OLAP (Consultas Analíticas e Views).md` | OLAP, LAG e views | Missões 10–12 do Caso 006 |
+| `Aula 13 - Fase 6 - Auditoria e Performance (Índices e Triggers).md` | Índices e auditoria | Missões 13–14 do Caso 006 |
+| `Aula 14 - Certificação e Conclusão da Trilha de Dados.md` | Certificação e portfólio | Conclusão da trilha |
+
+---
+
 ## Resumo de Classificação
 
 | Classificação | Módulos | Missões relacionadas |
@@ -689,4 +710,10 @@
 | Auditoria | ✅ | 28 |
 | COMMIT e ROLLBACK | ✅ | 29 |
 | Índices e otimização | ✅ | 30 |
+| Normalização (1FN, 2FN e 3FN) | ✅ | Trilha integrada — Aulas 01–06 |
+| PK, FK e cardinalidades | ✅ | Trilha integrada — Aula 05 |
+| Data quality e ETL | ✅ | Trilha integrada — Aulas 09–10 |
+| Star schema e SCD | ✅ | Trilha integrada — Aula 11 |
+| OLTP, OLAP e funções de janela | ✅ | Trilha integrada — Aulas 07–08 e 12 |
+| Certificação e portfólio | ✅ | Trilha integrada — Aula 14 |
 | CASE WHEN | ❌ | — (não ensinado explicitamente nas transcrições; implementado como missão 11 no jogo) |

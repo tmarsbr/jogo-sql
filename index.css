@@ -1088,7 +1088,7 @@ button {
   cursor: pointer;
   transition: all 150ms ease;
 }
-.rail-btn:hover {
+.rail-btn:not(:disabled):hover {
   border-color: var(--accent-cyan);
   color: var(--accent-cyan);
 }
@@ -1102,6 +1102,12 @@ button {
   border-color: rgba(0, 240, 255, 0.35);
   background: rgba(0, 240, 255, 0.06);
   color: #7DF7FF;
+}
+
+.rail-btn.locked,
+.rail-btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.35;
 }
 .rail-lesson-check {
   position: absolute;

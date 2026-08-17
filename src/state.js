@@ -70,6 +70,9 @@ export const state = {
 
   /** @type {string[]} ids de itens de curso já lidos */
   lessonsRead: [],
+
+  /** @type {string|null} instante ISO em que o caso foi concluído */
+  completedAt: null,
 };
 
 /**
@@ -99,6 +102,7 @@ export function resetState() {
   state.bonusPoints = 0;
   state.interrogation = { status: 'locked', stepIndex: 0, presentedEvidenceIds: [] };
   state.lessonsRead = [];
+  state.completedAt = null;
 }
 
 /** Cria a estrutura de progresso de um caso ainda não iniciado. */
@@ -108,6 +112,7 @@ export function createCaseProgress() {
     timelineOrder: [], timelineBonusAwarded: false, bonusPoints: 0,
     interrogation: { status: 'locked', stepIndex: 0, presentedEvidenceIds: [] },
     lessonsRead: [],
+    completedAt: null,
   };
 }
 
@@ -128,6 +133,7 @@ export function activateCaseProgress(caseId) {
     ? { ...progress.interrogation, presentedEvidenceIds: [...(progress.interrogation.presentedEvidenceIds || [])] }
     : { status: 'locked', stepIndex: 0, presentedEvidenceIds: [] };
   state.lessonsRead = [...(progress.lessonsRead || [])];
+  state.completedAt = progress.completedAt || null;
 }
 
 /** Persiste os campos ativos no mapa de progresso por caso. */
@@ -145,5 +151,6 @@ export function syncActiveCaseProgress() {
       ? { ...state.interrogation, presentedEvidenceIds: [...(state.interrogation.presentedEvidenceIds || [])] }
       : { status: 'locked', stepIndex: 0, presentedEvidenceIds: [] },
     lessonsRead: [...(state.lessonsRead || [])],
+    completedAt: state.completedAt || null,
   };
 }

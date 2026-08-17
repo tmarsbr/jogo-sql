@@ -4,8 +4,6 @@
  */
 
 export const SCHEMA_SQL = `
-PRAGMA foreign_keys = OFF;
-
 -- Tabela única desnormalizada (a "Planilha do Inferno")
 CREATE TABLE supremacy (
   id INTEGER PRIMARY KEY,
@@ -27,27 +25,29 @@ CREATE TABLE supremacy (
 -- Tabelas alvo (vazias — o jogador vai preenchê-las)
 CREATE TABLE clientes (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
-  nome TEXT,
-  cpf TEXT,
+  nome TEXT NOT NULL,
+  cpf TEXT NOT NULL UNIQUE,
   endereco TEXT,
   telefone TEXT
 );
 
 CREATE TABLE produtos (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
-  nome TEXT,
+  nome TEXT NOT NULL UNIQUE,
   categoria TEXT,
   preco REAL
 );
 
 CREATE TABLE vendedores (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
-  nome TEXT
+  nome TEXT NOT NULL UNIQUE,
+  regiao_id INTEGER NOT NULL,
+  FOREIGN KEY (regiao_id) REFERENCES regioes(id)
 );
 
 CREATE TABLE regioes (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
-  nome TEXT NOT NULL,
+  nome TEXT NOT NULL UNIQUE,
   gerente TEXT
 );
 
@@ -55,16 +55,20 @@ CREATE TABLE vendas (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   cliente_id INTEGER,
   vendedor_id INTEGER,
-  data_venda TEXT,
-  valor_total REAL
+  data_venda TEXT NOT NULL,
+  valor_total REAL NOT NULL,
+  FOREIGN KEY (cliente_id) REFERENCES clientes(id),
+  FOREIGN KEY (vendedor_id) REFERENCES vendedores(id)
 );
 
 CREATE TABLE itens_venda (
   venda_id INTEGER,
   produto_id INTEGER,
-  quantidade INTEGER,
-  preco_unitario REAL,
-  PRIMARY KEY (venda_id, produto_id)
+  quantidade INTEGER NOT NULL,
+  preco_unitario REAL NOT NULL,
+  PRIMARY KEY (venda_id, produto_id),
+  FOREIGN KEY (venda_id) REFERENCES vendas(id),
+  FOREIGN KEY (produto_id) REFERENCES produtos(id)
 );
 `;
 
@@ -91,14 +95,18 @@ INSERT INTO supremacy VALUES (18, '2024-02-18', 'Helena Martins', '888.888.888-0
 INSERT INTO supremacy VALUES (19, '2024-02-20', 'Igor Almeida', '999.999.999-09', 'Rua G, 400', '81-1111-0009', 'Impressora P', 'Informática', '650,00', 'Pedro Costa', 'Nordeste', 'Fernanda Alves', 1, '650,00');
 INSERT INTO supremacy VALUES (20, '2024-02-22', 'Igor Almeida', '999.999.999-09', 'Rua G, 400', '81-1111-0009', 'Notebook X', 'Informática', '3500,00', 'Pedro Costa', 'Nordeste', 'Fernanda Alves', 2, '3500,00');
 
--- ═══ Tabelas intermediárias (vendedores e regioes pré-populadas) ═══
--- O jogador vai popular clientes, produtos, regioes nas missões.
--- vendedores já tem dados para a missão 10 usar como referência.
-INSERT INTO vendedores (nome) VALUES ('Maria Souza');
-INSERT INTO vendedores (nome) VALUES ('João Santos');
-INSERT INTO vendedores (nome) VALUES ('Pedro Costa');
+-- ═══ Entidades de apoio já normalizadas ═══
+-- Regiões e vendedores são a referência para a etapa de 3FN. O jogador
+-- normaliza clientes, produtos, vendas e itens ao longo das missões.
+-- Um prospect sem venda permite demonstrar o relacionamento opcional com LEFT JOIN.
+INSERT INTO clientes (nome, cpf, endereco, telefone)
+VALUES ('Luciana Freitas', '000.000.000-00', 'Rua Sem Compra, 10', '11-0000-0000');
 
 INSERT INTO regioes (nome, gerente) VALUES ('Sudeste', 'Carlos Mendes');
 INSERT INTO regioes (nome, gerente) VALUES ('Sul', 'Patricia Lima');
 INSERT INTO regioes (nome, gerente) VALUES ('Nordeste', 'Fernanda Alves');
+
+INSERT INTO vendedores (nome, regiao_id) VALUES ('Maria Souza', 1);
+INSERT INTO vendedores (nome, regiao_id) VALUES ('João Santos', 2);
+INSERT INTO vendedores (nome, regiao_id) VALUES ('Pedro Costa', 3);
 `;

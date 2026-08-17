@@ -4,50 +4,53 @@
  */
 
 export const SCHEMA_SQL = `
-PRAGMA foreign_keys = OFF;
-
 -- ═══ MODELO OLTP (normalizado — resultado do Caso 005) ═══
 CREATE TABLE clientes (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   nome TEXT NOT NULL,
-  cpf TEXT,
+  cpf TEXT NOT NULL UNIQUE,
   endereco TEXT,
   telefone TEXT
 );
 
 CREATE TABLE produtos (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
-  nome TEXT NOT NULL,
+  nome TEXT NOT NULL UNIQUE,
   categoria TEXT,
   preco REAL
 );
 
 CREATE TABLE vendedores (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
-  nome TEXT NOT NULL,
-  regiao_id INTEGER
+  nome TEXT NOT NULL UNIQUE,
+  regiao_id INTEGER NOT NULL,
+  FOREIGN KEY (regiao_id) REFERENCES regioes(id)
 );
 
 CREATE TABLE regioes (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
-  nome TEXT NOT NULL,
+  nome TEXT NOT NULL UNIQUE,
   gerente TEXT
 );
 
 CREATE TABLE vendas (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
-  cliente_id INTEGER,
-  vendedor_id INTEGER,
+  cliente_id INTEGER NOT NULL,
+  vendedor_id INTEGER NOT NULL,
   data_venda TEXT NOT NULL,
-  valor_total REAL
+  valor_total REAL NOT NULL,
+  FOREIGN KEY (cliente_id) REFERENCES clientes(id),
+  FOREIGN KEY (vendedor_id) REFERENCES vendedores(id)
 );
 
 CREATE TABLE itens_venda (
-  venda_id INTEGER,
-  produto_id INTEGER,
+  venda_id INTEGER NOT NULL,
+  produto_id INTEGER NOT NULL,
   quantidade INTEGER NOT NULL,
   preco_unitario REAL NOT NULL,
-  PRIMARY KEY (venda_id, produto_id)
+  PRIMARY KEY (venda_id, produto_id),
+  FOREIGN KEY (venda_id) REFERENCES vendas(id),
+  FOREIGN KEY (produto_id) REFERENCES produtos(id)
 );
 
 -- ═══ STAGING (dados sujos vindos do CSV) ═══
@@ -56,6 +59,7 @@ CREATE TABLE stg_clientes (
   nome TEXT,
   cpf TEXT,
   endereco TEXT,
+  cidade TEXT,
   telefone TEXT
 );
 
@@ -72,7 +76,7 @@ CREATE TABLE stg_vendas (
 -- ═══ DATA WAREHOUSE (tabelas destino) ═══
 CREATE TABLE dim_tempo (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
-  data_completa TEXT NOT NULL,
+  data_completa TEXT NOT NULL UNIQUE,
   ano INTEGER,
   mes INTEGER,
   dia INTEGER
@@ -104,14 +108,21 @@ CREATE TABLE dim_regioes (
 
 CREATE TABLE fct_vendas (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
-  tempo_id INTEGER,
-  cliente_id INTEGER,
-  produto_id INTEGER,
-  vendedor_id INTEGER,
-  regiao_id INTEGER,
+  source_venda_id INTEGER NOT NULL,
+  tempo_id INTEGER NOT NULL,
+  cliente_id INTEGER NOT NULL,
+  produto_id INTEGER NOT NULL,
+  vendedor_id INTEGER NOT NULL,
+  regiao_id INTEGER NOT NULL,
   quantidade INTEGER NOT NULL,
   valor_unitario REAL NOT NULL,
-  valor_total REAL NOT NULL
+  valor_total REAL NOT NULL,
+  FOREIGN KEY (tempo_id) REFERENCES dim_tempo(id),
+  FOREIGN KEY (cliente_id) REFERENCES dim_clientes(id),
+  FOREIGN KEY (produto_id) REFERENCES dim_produtos(id),
+  FOREIGN KEY (vendedor_id) REFERENCES dim_vendedores(id),
+  FOREIGN KEY (regiao_id) REFERENCES dim_regioes(id),
+  UNIQUE (source_venda_id, produto_id)
 );
 
 -- ═══ AUDITORIA ═══
@@ -201,18 +212,21 @@ INSERT INTO itens_venda VALUES (19, 6, 1, 650.00);
 INSERT INTO itens_venda VALUES (20, 1, 2, 3500.00);
 
 -- ═══ STAGING: Dados sujos (simulando CSV importado) ═══
-INSERT INTO stg_clientes VALUES (1, ' José da Silva ', '111.111.111-01', 'Rua A, 100', '11-9999-0001');
-INSERT INTO stg_clientes VALUES (2, 'ana pereira', '222.222.222-02', 'Av. Brasil, 500', NULL);
-INSERT INTO stg_clientes VALUES (3, 'CARLOS OLIVEIRA', '333.333.333-03', 'Rua C, 50', '31-7777-0003');
-INSERT INTO stg_clientes VALUES (4, 'beatriz lima', '444.444.444-04', 'Rua D, 200', '41-6666-0004');
-INSERT INTO stg_clientes VALUES (5, ' Eduardo Rocha', '555.555.555-05', 'Av. Paulista, 1000', '11-5555-0005');
+INSERT INTO stg_clientes VALUES (1, ' José da Silva ', '111.111.111-01', 'Rua A, 100', 'São Paulo', '11-9999-0001');
+INSERT INTO stg_clientes VALUES (2, 'ana pereira', '222.222.222-02', 'Av. Brasil, 500', 'Rio de Janeiro', NULL);
+INSERT INTO stg_clientes VALUES (3, 'CARLOS OLIVEIRA', '333.333.333-03', 'Rua C, 50', 'Belo Horizonte', '31-7777-0003');
+INSERT INTO stg_clientes VALUES (4, 'beatriz lima', '444.444.444-04', 'Rua D, 200', 'Curitiba', '41-6666-0004');
+INSERT INTO stg_clientes VALUES (5, ' Eduardo Rocha', '555.555.555-05', 'Av. Paulista, 1000', 'São Paulo', '11-5555-0005');
+INSERT INTO stg_clientes VALUES (6, 'Fernanda Costa ', '666.666.666-06', 'Rua E, 75', 'Porto Alegre', '51-4444-0006');
+INSERT INTO stg_clientes VALUES (7, 'GABRIEL SOUZA', '777.777.777-07', 'Rua F, 300', 'Brasília', '61-3333-0007');
+INSERT INTO stg_clientes VALUES (8, ' helena martins ', '888.888.888-08', 'Av. Goiás, 150', 'Salvador', '71-2222-0008');
+INSERT INTO stg_clientes VALUES (9, 'Igor Almeida', '999.999.999-09', 'Rua G, 400', 'Recife', '81-1111-0009');
 
-INSERT INTO stg_vendas VALUES (1, 'José da Silva', 'Notebook X', 'Maria Souza', '05/01/2024', '2', '3.500,00');
-INSERT INTO stg_vendas VALUES (2, 'ana pereira', 'Mouse Y', 'João Santos', '15/01/2024', '1', '120,50');
-INSERT INTO stg_vendas VALUES (3, ' CARLOS OLIVEIRA', 'Impressora P', 'Pedro Costa', '20/01/2024', '1', '650,00');
-INSERT INTO stg_vendas VALUES (4, 'jose da silva', 'Teclado Z', 'Maria Souza', '10/01/2024', '3', '200,00');
-INSERT INTO stg_vendas VALUES (5, 'Eduardo Rocha', 'Notebook X', 'João Santos', '01/02/2024', '3', '3.500,00');
-`;
+INSERT INTO stg_vendas VALUES (21, 'José da Silva', 'Notebook X', 'Maria Souza', '05/03/2024', '2', '3.500,00');
+INSERT INTO stg_vendas VALUES (22, 'ana pereira', 'Mouse Y', 'João Santos', '06/03/2024', '1', '120,50');
+INSERT INTO stg_vendas VALUES (23, ' CARLOS OLIVEIRA', 'Impressora P', 'Pedro Costa', '07/03/2024', '1', '650,00');
+INSERT INTO stg_vendas VALUES (24, 'jose da silva', 'Teclado Z', 'Maria Souza', '08/03/2024', '3', '200,00');
+INSERT INTO stg_vendas VALUES (25, 'Eduardo Rocha', 'Notebook X', 'João Santos', '09/03/2024', '3', '3.500,00');
 
 -- ═══ DW: Dimensões pré-populadas (o jogador vai atualizar/transformar) ═══
 INSERT INTO dim_vendedores VALUES (1, 'Maria Souza');
@@ -229,25 +243,4 @@ INSERT INTO dim_produtos VALUES (3, 'Teclado Z', 'Periféricos');
 INSERT INTO dim_produtos VALUES (4, 'Monitor W', 'Informática');
 INSERT INTO dim_produtos VALUES (5, 'Webcam V', 'Periféricos');
 INSERT INTO dim_produtos VALUES (6, 'Impressora P', 'Informática');
-
--- ═══ DW: dim_tempo pré-populada com datas únicas das vendas ═══
-INSERT INTO dim_tempo (data_completa, ano, mes, dia) VALUES ('2024-01-05', 2024, 1, 5);
-INSERT INTO dim_tempo (data_completa, ano, mes, dia) VALUES ('2024-01-08', 2024, 1, 8);
-INSERT INTO dim_tempo (data_completa, ano, mes, dia) VALUES ('2024-01-10', 2024, 1, 10);
-INSERT INTO dim_tempo (data_completa, ano, mes, dia) VALUES ('2024-01-12', 2024, 1, 12);
-INSERT INTO dim_tempo (data_completa, ano, mes, dia) VALUES ('2024-01-15', 2024, 1, 15);
-INSERT INTO dim_tempo (data_completa, ano, mes, dia) VALUES ('2024-01-18', 2024, 1, 18);
-INSERT INTO dim_tempo (data_completa, ano, mes, dia) VALUES ('2024-01-20', 2024, 1, 20);
-INSERT INTO dim_tempo (data_completa, ano, mes, dia) VALUES ('2024-01-22', 2024, 1, 22);
-INSERT INTO dim_tempo (data_completa, ano, mes, dia) VALUES ('2024-01-25', 2024, 1, 25);
-INSERT INTO dim_tempo (data_completa, ano, mes, dia) VALUES ('2024-01-28', 2024, 1, 28);
-INSERT INTO dim_tempo (data_completa, ano, mes, dia) VALUES ('2024-02-01', 2024, 2, 1);
-INSERT INTO dim_tempo (data_completa, ano, mes, dia) VALUES ('2024-02-03', 2024, 2, 3);
-INSERT INTO dim_tempo (data_completa, ano, mes, dia) VALUES ('2024-02-05', 2024, 2, 5);
-INSERT INTO dim_tempo (data_completa, ano, mes, dia) VALUES ('2024-02-08', 2024, 2, 8);
-INSERT INTO dim_tempo (data_completa, ano, mes, dia) VALUES ('2024-02-10', 2024, 2, 10);
-INSERT INTO dim_tempo (data_completa, ano, mes, dia) VALUES ('2024-02-12', 2024, 2, 12);
-INSERT INTO dim_tempo (data_completa, ano, mes, dia) VALUES ('2024-02-15', 2024, 2, 15);
-INSERT INTO dim_tempo (data_completa, ano, mes, dia) VALUES ('2024-02-18', 2024, 2, 18);
-INSERT INTO dim_tempo (data_completa, ano, mes, dia) VALUES ('2024-02-20', 2024, 2, 20);
-INSERT INTO dim_tempo (data_completa, ano, mes, dia) VALUES ('2024-02-22', 2024, 2, 22);
+`;

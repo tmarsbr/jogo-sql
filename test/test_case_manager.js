@@ -16,6 +16,8 @@ const legacyLevels = loadLevels();
 const case002Levels = loadCaseModule('cases/case002/levels.js');
 const case003Levels = loadCaseModule('cases/case003/levels.js');
 const case004Levels = loadCaseModule('cases/case004/levels.js');
+const case005Levels = loadCaseModule('cases/case005/levels.js');
+const case006Levels = loadCaseModule('cases/case006/levels.js');
 const projEcommerceLevels = loadCaseModule('cases/proj-ecommerce/levels.js');
 const projClientesLevels = loadCaseModule('cases/proj-clientes/levels.js');
 const projVendasLevels = loadCaseModule('cases/proj-vendas/levels.js');
@@ -33,6 +35,8 @@ const case001Levels = __case001Levels;
 const case002Levels = __case002Levels;
 const case003Levels = __case003Levels;
 const case004Levels = __case004Levels;
+const case005Levels = __case005Levels;
+const case006Levels = __case006Levels;
 const projEcommerceLevels = __projEcommerceLevels;
 const projClientesLevels = __projClientesLevels;
 const projVendasLevels = __projVendasLevels;
@@ -51,6 +55,8 @@ const manager = evalModule(managerCode, {
   __case002Levels: case002Levels,
   __case003Levels: case003Levels,
   __case004Levels: case004Levels,
+  __case005Levels: case005Levels,
+  __case006Levels: case006Levels,
   __projEcommerceLevels: projEcommerceLevels,
   __projClientesLevels: projClientesLevels,
   __projVendasLevels: projVendasLevels,
@@ -67,10 +73,11 @@ const manager = evalModule(managerCode, {
 
 console.log('\n=== Case Manager ===');
 const allCases = manager.getAllCases();
-assert(allCases.length === 16, 'Registry contém dezesseis casos no total (4 investigações + 12 projetos)');
+assert(allCases.length === 18, 'Registry contém dezoito cenários no total (6 investigações + 12 projetos)');
 assert(allCases.every(item => item.DATABASE_ANALYSIS), 'Todos os casos expõem a Etapa 0 de análise do banco');
-assert(manager.getInvestigations().length === 4, 'getInvestigations retorna 4 casos investigativos');
+assert(manager.getInvestigations().length === 6, 'getInvestigations retorna 6 casos investigativos');
 assert(manager.getProjects().length === 12, 'getProjects retorna 12 projetos de análise de dados');
+assert(manager.getCaseById('case005').number === '005' && manager.getCaseById('case006').number === '006', 'Novos casos mantêm numeração investigativa com três dígitos');
 const case001Entities = manager.getCaseById('case001').DATABASE_ANALYSIS.entities.map(item => item.name);
 assert(['funcionarios', 'transacoes', 'logs_acesso', 'emails'].every(name => case001Entities.includes(name)), 'Caso 001 introduz as quatro entidades centrais da normalização');
 assert(manager.getCaseById('case003').title === 'A Rota da Cripto-Ativo', 'Busca caso por ID');
@@ -93,6 +100,26 @@ assert(!manager.isCaseAvailable('case002', duplicated), 'Níveis duplicados não
 
 const completed002 = { ...completed001, case002: { completedLevels: case002Levels.LEVELS.map(level => level.id) } };
 assert(manager.isCaseAvailable('case003', completed002), 'Case003 desbloqueia após case002');
+
+const completedThrough004 = {
+  ...completed002,
+  case003: { completedLevels: case003Levels.LEVELS.map(level => level.id) },
+  case004: { completedLevels: case004Levels.LEVELS.map(level => level.id) },
+};
+assert(manager.isCaseAvailable('case005', completedThrough004), 'Case005 desbloqueia após os quatro casos anteriores');
+assert(!manager.isCaseAvailable('case006', completedThrough004), 'Case006 permanece bloqueado sem concluir case005');
+
+const completed005WithoutChallenge = {
+  ...completedThrough004,
+  case005: { completedLevels: case005Levels.LEVELS.map(level => level.id), interrogation: { status: 'active', stepIndex: 3, presentedEvidenceIds: [] } },
+};
+assert(!manager.isCaseAvailable('case006', completed005WithoutChallenge), 'Case006 exige o desafio final do case005');
+
+const completed005 = {
+  ...completedThrough004,
+  case005: { completedLevels: case005Levels.LEVELS.map(level => level.id), interrogation: { status: 'won', stepIndex: 4, presentedEvidenceIds: [] } },
+};
+assert(manager.isCaseAvailable('case006', completed005), 'Case006 desbloqueia após as 14 missões e o desafio do case005');
 
 console.log(`\nRESULTADO: ${passed} passaram, ${failed} falharam`);
 process.exit(failed ? 1 : 0);

@@ -147,6 +147,59 @@ async function run() {
   r = validateLevel('', L4, db);
   assert(r.type === FEEDBACK_SQL_ERROR || r.type === FEEDBACK_BLOCKED, `Vazia → ${r.type}`);
 
+  // === Missão mutável: validação transacional ===
+  console.log('\n=== Missão mutável: rollback de tentativa incorreta ===');
+  db.run('CREATE TABLE validator_destino (id INTEGER PRIMARY KEY, nome TEXT NOT NULL);');
+  const mutationLevel = {
+    executionMode: 'ddl',
+    expectedColumns: ['id', 'nome'],
+    referenceQuery: 'INSERT INTO validator_destino (id, nome) SELECT id, nome FROM funcionarios WHERE id <= 2;',
+    verificationQuery: 'SELECT id, nome FROM validator_destino ORDER BY id;',
+    expectedResultQuery: 'SELECT id, nome FROM validator_destino ORDER BY id;',
+    requiredConcepts: ['insert', 'select'],
+    explanation: 'Carga validada.',
+  };
+
+  r = validateLevel('INSERT INTO validator_destino (id, nome) SELECT id, nome FROM funcionarios WHERE id = 1;', mutationLevel, db);
+  assert(r.type === FEEDBACK_WRONG_RESULT, `Carga parcial é rejeitada → ${r.type}`);
+  const countAfterWrong = db.exec('SELECT COUNT(*) FROM validator_destino;')[0].values[0][0];
+  assert(countAfterWrong === 0, 'Tentativa incorreta é revertida e não contamina o banco');
+
+  r = validateLevel(mutationLevel.referenceQuery, mutationLevel, db);
+  assert(r.type === FEEDBACK_CORRECT, `Carga correta é aceita → ${r.type}`);
+  const countAfterCorrect = db.exec('SELECT COUNT(*) FROM validator_destino;')[0].values[0][0];
+  assert(countAfterCorrect === 2, 'Somente a mutação validada persiste');
+
+  // === Trigger: validação funcional dentro do savepoint ===
+  console.log('\n=== Missão mutável: trigger é exercitado antes de persistir ===');
+  db.run('CREATE TABLE validator_source (id INTEGER PRIMARY KEY, valor REAL NOT NULL);');
+  db.run('CREATE TABLE validator_log (tabela TEXT, registro_id INTEGER, valor_antigo REAL, valor_novo REAL);');
+  db.run('INSERT INTO validator_source VALUES (1, 10);');
+  const triggerLevel = {
+    executionMode: 'ddl',
+    expectedColumns: ['tabela', 'registro_id', 'valor_antigo', 'valor_novo'],
+    referenceQuery: "CREATE TRIGGER validator_audit AFTER UPDATE ON validator_source FOR EACH ROW BEGIN INSERT INTO validator_log (tabela, registro_id, valor_antigo, valor_novo) VALUES ('validator_source', OLD.id, OLD.valor, NEW.valor); END;",
+    exerciseQuery: 'UPDATE validator_source SET valor = valor + 1 WHERE id = 1;',
+    verificationQuery: 'SELECT tabela, registro_id, valor_antigo, valor_novo FROM validator_log;',
+    expectedResultQuery: 'SELECT tabela, registro_id, valor_antigo, valor_novo FROM validator_log;',
+    requiredConcepts: ['create trigger', 'after update', 'insert', 'old', 'new'],
+    explanation: 'Trigger validado.',
+  };
+  const wrongTrigger = "CREATE TRIGGER validator_audit AFTER UPDATE ON validator_source FOR EACH ROW BEGIN INSERT INTO validator_log (tabela, registro_id, valor_antigo, valor_novo) VALUES ('tabela_errada', OLD.id, OLD.valor, NEW.valor); END;";
+
+  r = validateLevel(wrongTrigger, triggerLevel, db);
+  assert(r.type === FEEDBACK_WRONG_RESULT, `Trigger com efeito incorreto é rejeitado → ${r.type}`);
+  assert(db.exec("SELECT COUNT(*) FROM sqlite_master WHERE type = 'trigger' AND name = 'validator_audit';")[0].values[0][0] === 0, 'Trigger rejeitado é removido pelo rollback');
+  assert(db.exec('SELECT valor FROM validator_source WHERE id = 1;')[0].values[0][0] === 10, 'UPDATE de teste é revertido');
+  assert(db.exec('SELECT COUNT(*) FROM validator_log;')[0].values[0][0] === 0, 'Log de teste não contamina o banco');
+
+  r = validateLevel(triggerLevel.referenceQuery, triggerLevel, db);
+  assert(r.type === FEEDBACK_CORRECT, `Trigger funcional é aceito → ${r.type}`);
+  assert(db.exec('SELECT COUNT(*) FROM validator_log;')[0].values[0][0] === 0, 'Validação não deixa log artificial após o commit do trigger');
+  db.run('UPDATE validator_source SET valor = 12 WHERE id = 1;');
+  const auditRow = db.exec('SELECT tabela, registro_id, valor_antigo, valor_novo FROM validator_log;')[0].values[0];
+  assert(auditRow[0] === 'validator_source' && auditRow[1] === 1 && auditRow[2] === 10 && auditRow[3] === 12, 'Trigger persistido registra uma alteração real');
+
   // === Resultado ===
   console.log('\n' + '='.repeat(50));
   console.log(`RESULTADO: ${passed} passaram, ${failed} falharam`);

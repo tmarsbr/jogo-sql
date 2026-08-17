@@ -1,4 +1,4 @@
-/** Regressão dos Casos #002–#004: seeds e queries de referência. */
+/** Regressão dos casos e projetos: seeds, contratos e queries de referência. */
 const initSqlJs = require('sql.js');
 const fs = require('fs');
 const path = require('path');
@@ -50,6 +50,8 @@ async function run() {
     ['case002', 'cases/case002/levels.js', 'cases/case002/db-seed.js'],
     ['case003', 'cases/case003/levels.js', 'cases/case003/db-seed.js'],
     ['case004', 'cases/case004/levels.js', 'cases/case004/db-seed.js'],
+    ['case005', 'cases/case005/levels.js', 'cases/case005/db-seed.js'],
+    ['case006', 'cases/case006/levels.js', 'cases/case006/db-seed.js'],
     ['proj-ecommerce', 'cases/proj-ecommerce/levels.js', 'cases/proj-ecommerce/db-seed.js'],
     ['proj-clientes', 'cases/proj-clientes/levels.js', 'cases/proj-clientes/db-seed.js'],
     ['proj-vendas', 'cases/proj-vendas/levels.js', 'cases/proj-vendas/db-seed.js'],
@@ -67,6 +69,8 @@ async function run() {
     case002: 11,
     case003: 10,
     case004: 11,
+    case005: 14,
+    case006: 14,
     'proj-ecommerce': 10,
     'proj-clientes': 10,
     'proj-vendas': 10,
@@ -86,6 +90,7 @@ async function run() {
     const levels = loadCaseModule(levelsFile);
     const { schema, seed } = loadSeed(seedFile);
     const db = new SQL.Database();
+    db.run('PRAGMA foreign_keys = ON;');
     db.run(schema);
     db.run(seed);
     assert(levels.LEVELS.length === expectedMissionCounts[caseId], `${caseId} tem ${expectedMissionCounts[caseId]} missões`);
@@ -97,6 +102,12 @@ async function run() {
     assert(levels.DATABASE_ANALYSIS.entities.length >= 4, `${caseId} explica suas entidades principais`);
     assert(levels.DATABASE_ANALYSIS.decisions.length >= 3, `${caseId} documenta decisões de design`);
     assert(levels.DATABASE_ANALYSIS.checkpoints.length >= 2, `${caseId} inclui missões conceituais`);
+    if (levels.GAMEPLAY?.finalChallenge) {
+      const timelineIds = new Set((levels.GAMEPLAY.timeline?.events || []).map(event => event.id));
+      const challengeEvidenceIds = levels.GAMEPLAY.finalChallenge.steps.map(step => step.evidenceId);
+      assert(challengeEvidenceIds.every(id => timelineIds.has(id)), `${caseId}: desafio final usa somente evidências existentes`);
+      assert(new Set(challengeEvidenceIds).size === challengeEvidenceIds.length, `${caseId}: cada etapa do desafio exige uma evidência própria`);
+    }
     for (const level of levels.LEVELS) {
       const requiredConcepts = Array.isArray(level.requiredConcepts)
         ? level.requiredConcepts.map(concept => String(concept).trim().toLowerCase())
@@ -165,6 +176,37 @@ async function run() {
       const dml = executor.executeQuery('UPDATE produtos SET estoque_atual = 1 WHERE id = 5;', db, { allowDml: true });
       assert(dml.type === executor.RESULT_EMPTY, 'Sandbox DML permite uma alteração controlada');
       assert(db.exec('SELECT estoque_atual FROM produtos WHERE id = 5;')[0].values[0][0] === 1, 'Alteração DML ficou restrita ao banco do caso em memória');
+    }
+    if (caseId === 'case005') {
+      const fkViolations = db.exec('PRAGMA foreign_key_check;');
+      assert(fkViolations.length === 0 || fkViolations[0].values.length === 0, 'Caso 005 termina sem violações de FK');
+      assert(db.exec('SELECT COUNT(*) FROM clientes;')[0].values[0][0] === 10, 'Caso 005 consolida 9 clientes da planilha e preserva 1 prospect');
+      assert(db.exec("SELECT nome FROM clientes WHERE cpf = '111.111.111-01';")[0].values[0][0] === 'José da Silva', 'Caso 005 escolhe deterministicamente o primeiro cadastro de cada CPF');
+      assert(db.exec('SELECT COUNT(*) FROM vendas;')[0].values[0][0] === 20, 'Caso 005 possui 20 cabeçalhos de venda');
+      assert(db.exec('SELECT COUNT(*) FROM vendas WHERE cliente_id IS NULL OR vendedor_id IS NULL;')[0].values[0][0] === 0, 'Caso 005 preenche todas as FKs obrigatórias do modelo final');
+      assert(db.exec('SELECT COUNT(*) FROM itens_venda;')[0].values[0][0] === 20, 'Caso 005 possui 20 itens ligados por FKs');
+      const noPurchase = db.exec('SELECT COUNT(*) FROM clientes c LEFT JOIN vendas v ON v.cliente_id = c.id WHERE v.id IS NULL;')[0].values[0][0];
+      assert(noPurchase === 1, 'LEFT JOIN do Caso 005 encontra o prospect sem compras');
+    }
+    if (caseId === 'case006') {
+      const fkViolations = db.exec('PRAGMA foreign_key_check;');
+      assert(fkViolations.length === 0 || fkViolations[0].values.length === 0, 'Caso 006 termina sem violações de FK');
+      assert(db.exec('SELECT COUNT(*) FROM dim_clientes;')[0].values[0][0] === 9, 'ETL carrega os 9 clientes na dimensão');
+      assert(db.exec('SELECT COUNT(*) FROM dim_tempo;')[0].values[0][0] === 20, 'Dimensão tempo possui 20 datas sem duplicação');
+      assert(db.exec('SELECT COUNT(*) FROM fct_vendas;')[0].values[0][0] === 20, 'Tabela fato possui exatamente 20 linhas na granularidade definida');
+      const incrementalRows = db.exec(levels.LEVELS.find(level => level.id === 6).referenceQuery)[0].values;
+      assert(incrementalRows.length === 5 && incrementalRows[0][0] === 21 && incrementalRows[4][0] === 25, 'Carga incremental preserva cinco novos ids sem colidir com as vendas 1–20 do OLTP');
+      let duplicateFactRejected = false;
+      try {
+        db.run('INSERT INTO fct_vendas (source_venda_id, tempo_id, cliente_id, produto_id, vendedor_id, regiao_id, quantidade, valor_unitario, valor_total) SELECT source_venda_id, tempo_id, cliente_id, produto_id, vendedor_id, regiao_id, quantidade, valor_unitario, valor_total FROM fct_vendas WHERE id = 1;');
+      } catch {
+        duplicateFactRejected = true;
+      }
+      assert(duplicateFactRejected, 'Granularidade da fato rejeita a mesma combinação venda de origem + produto');
+      const monthly = db.exec(levels.LEVELS.find(level => level.id === 11).referenceQuery)[0].values;
+      assert(monthly.length === 2 && monthly[0][0] === '2024-01' && monthly[1][0] === '2024-02', 'LAG compara os dois meses, não cada dia da dimensão tempo');
+      db.run('UPDATE fct_vendas SET valor_total = valor_total + 1 WHERE id = 1;');
+      assert(db.exec('SELECT COUNT(*) FROM log_auditoria;')[0].values[0][0] === 1, 'Trigger final registra uma alteração real na fato');
     }
     if (caseId === 'proj-vendas') {
       const level = levels.LEVELS.find(item => item.id === 6);

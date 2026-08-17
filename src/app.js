@@ -71,10 +71,22 @@ import { buildHintContext, requestAiHint } from './ai-hints.js';
 import { getUnlockedEvents, normalizeOrder, moveEvent, checkTimelineBonus } from './timeline.js';
 import { showCertificateModal } from './certificate.js';
 import { deriveSuspicion } from './suspect-meter.js';
-import { startInterrogation, presentEvidence } from './interrogation.js';import { initSfx, setSfxEnabled, isSfxEnabled, playTypingSound, playAlertSound, playSuccessSound } from './sfx.js';
+import { startInterrogation, presentEvidence } from './interrogation.js';
+import { initSfx, setSfxEnabled, isSfxEnabled, playTypingSound, playAlertSound, playSuccessSound } from './sfx.js';
 
 function getActiveCase() {
   return getCaseById(state.currentCase) || getCaseById('case001');
+}
+
+function getLockedMissionIds(caseDefinition, completedLevels = state.completedLevels) {
+  if (!caseDefinition?.SEQUENTIAL_MISSIONS) return [];
+  const completed = new Set(completedLevels);
+  const firstIncompleteIndex = caseDefinition.LEVELS.findIndex(level => !completed.has(level.id));
+  if (firstIncompleteIndex < 0) return [];
+  return caseDefinition.LEVELS
+    .slice(firstIncompleteIndex + 1)
+    .filter(level => !completed.has(level.id))
+    .map(level => level.id);
 }
 
 function getCourseItemsForLevel(level) {
@@ -372,12 +384,35 @@ function persistState() {
     bonusPoints: state.bonusPoints,
     interrogation: state.interrogation,
     lessonsRead: state.lessonsRead,
+    completedAt: state.completedAt,
   });
 }
 
 function recalculateScore() {
   state.score = calculateTotalScore(state.levelProgress, state.bonusPoints);
   return state.score;
+}
+
+function showActiveCaseConclusion(activeCase) {
+  const totalStars = calculateTotalStars(state.levelProgress);
+  const maxStars = calculateMaxStars(activeCase.getTotalLevels());
+  const conclusionBody = `
+    <p>${activeCase.CASE_CONCLUSION.story}</p>
+    <p style="margin-top: 12px;">${activeCase.CASE_CONCLUSION.nextSteps}</p>
+  `;
+
+  showConclusionModal(
+    `${activeCase.CASE_INTRO.subtitle?.toUpperCase() || 'CASO #001'} · ENCERRADO`,
+    conclusionBody,
+    {
+      score: state.score,
+      stars: `${totalStars}/${maxStars}`,
+      missions: `${state.completedLevels.length}/${activeCase.getTotalLevels()}`,
+    }
+  );
+
+  const certificateButton = document.getElementById('btn-conclusion-certificate');
+  if (certificateButton) certificateButton.hidden = false;
 }
 
 /** Apaga somente o progresso do cenário ativo, preservando os demais. */
@@ -404,13 +439,20 @@ function restoreCompletedMissionViews(caseDefinition, db, completedLevels = stat
   const completed = new Set(completedLevels);
   const restored = [];
   for (const level of caseDefinition.LEVELS || []) {
-    if (level.executionMode !== 'create_view' || !completed.has(level.id)) continue;
+    const isView = level.executionMode === 'create_view';
+    const isMutation = level.executionMode === 'ddl';
+    if ((!isView && !isMutation) || !completed.has(level.id)) continue;
 
-    const result = executeQuery(level.referenceQuery, db, { allowCreateView: true });
+    const result = executeQuery(level.referenceQuery, db, {
+      allowCreateView: isView,
+      allowDml: isMutation,
+      allowDdl: isMutation,
+    });
     if (result.type === 'empty') {
-      restored.push(level.viewName);
+      restored.push(isView ? level.viewName : level.id);
     } else {
-      console.warn(`Não foi possível restaurar a view ${level.viewName}: ${result.message}`);
+      const artifact = isView ? `a view ${level.viewName}` : `a alteração da missão ${level.id}`;
+      console.warn(`Não foi possível restaurar ${artifact}: ${result.message}`);
     }
   }
   return restored;
@@ -422,6 +464,11 @@ function restoreCompletedMissionViews(caseDefinition, db, completedLevels = stat
  */
 function loadMission(levelId) {
   const activeCase = getActiveCase();
+  const lockedMissionIds = getLockedMissionIds(activeCase);
+  if (lockedMissionIds.includes(levelId)) {
+    const completed = new Set(state.completedLevels);
+    levelId = activeCase.LEVELS.find(level => !completed.has(level.id))?.id ?? levelId;
+  }
   const level = activeCase.getLevel(levelId);
   if (!level) return;
 
@@ -448,7 +495,7 @@ function loadMission(levelId) {
   // Renderiza Rail vertical de missões
   renderMissionRail(activeCase.LEVELS, levelId, state.completedLevels, (selectedId) => {
     loadMission(selectedId);
-  }, state.lessonsRead);
+  }, state.lessonsRead, getLockedMissionIds(activeCase));
 
   configureSidebarTabs({
     graph: Boolean(activeCase.GAMEPLAY?.graph),
@@ -498,18 +545,28 @@ function loadMission(levelId) {
     showStartInterrogationButton(false);
   }
 
-  enableHintButton(true);
+  const completedMutation = level.executionMode === 'ddl' && state.completedLevels.includes(level.id);
+  enableEditorButtons(!completedMutation);
+  enableHintButton(!completedMutation);
   setHintButtonLoading(false);
   setMissionStatus(`Missão ${levelId}: ${level.title}`);
 
   const editorHelp = document.getElementById('editor-help');
   if (editorHelp) {
-    editorHelp.textContent = level.executionMode === 'create_view'
-      ? `Crie somente a view ${level.viewName}; a prévia será consultada automaticamente.`
-      : 'Use SELECT ou WITH para consultar o banco.';
+    if (level.executionMode === 'create_view') {
+      editorHelp.textContent = `Crie somente a view ${level.viewName}; a prévia será consultada automaticamente.`;
+    } else if (completedMutation) {
+      editorHelp.textContent = 'Alteração já aplicada ao banco. Avance para a próxima missão ou revise a aula.';
+    } else if (level.executionMode === 'ddl') {
+      editorHelp.textContent = 'Execute uma única operação INSERT, UPDATE, CREATE INDEX ou CREATE TRIGGER, conforme o objetivo.';
+    } else {
+      editorHelp.textContent = 'Use SELECT ou WITH para consultar o banco.';
+    }
   }
   setEditorValue('');
-  setResults('<p class="placeholder-text">Aguardando consulta. Escreva sua query e execute.</p>');
+  setResults(completedMutation
+    ? '<p class="placeholder-text">Esta alteração já faz parte do estado restaurado do banco.</p>'
+    : '<p class="placeholder-text">Aguardando consulta. Escreva sua query e execute.</p>');
   renderFromState();
 
   persistState();
@@ -571,7 +628,7 @@ async function init() {
         renderMission(activeLevel, courseItems, state.lessonsRead);
         renderMissionRail(activeCase.LEVELS, state.currentLevel, state.completedLevels, (selectedId) => {
           loadMission(selectedId);
-        }, state.lessonsRead);
+        }, state.lessonsRead, getLockedMissionIds(activeCase));
       }
     };
 
@@ -641,6 +698,13 @@ async function init() {
         hideConclusionModal();
         const btnSandbox = document.getElementById('btn-sandbox');
         if (btnSandbox) btnSandbox.click();
+      });
+    }
+
+    const btnConclusionCertificate = document.getElementById('btn-conclusion-certificate');
+    if (btnConclusionCertificate) {
+      btnConclusionCertificate.addEventListener('click', () => {
+        showCertificateModal(getActiveCase());
       });
     }
 
@@ -782,6 +846,14 @@ function initBasicEvents() {
           state.completedLevels.push(state.currentLevel);
         }
 
+        if (
+          state.completedLevels.length >= activeCase.getTotalLevels()
+          && !activeCase.GAMEPLAY?.finalChallenge
+          && !state.completedAt
+        ) {
+          state.completedAt = new Date().toISOString();
+        }
+
         if (!state.evidence.includes(level.evidence)) {
           state.evidence.push(level.evidence);
           playAlertSound();
@@ -789,7 +861,7 @@ function initBasicEvents() {
           playSuccessSound();
         }
 
-        if (level.executionMode === 'create_view') {
+        if (level.executionMode === 'create_view' || (level.executionMode === 'ddl' && /^\s*CREATE\b/i.test(sql))) {
           setSchema(getSchemaText());
         }
 
@@ -800,7 +872,13 @@ function initBasicEvents() {
 
         renderMissionRail(activeCase.LEVELS, state.currentLevel, state.completedLevels, (selectedId) => {
           loadMission(selectedId);
-        }, state.lessonsRead);
+        }, state.lessonsRead, getLockedMissionIds(activeCase));
+
+        if (level.executionMode === 'ddl') {
+          enableEditorButtons(false);
+          const currentEditorHelp = document.getElementById('editor-help');
+          if (currentEditorHelp) currentEditorHelp.textContent = 'Alteração aplicada e validada. Avance para a próxima missão.';
+        }
 
         if (activeCase.GAMEPLAY?.graph) {
           const suspicion = deriveSuspicion(activeCase.GAMEPLAY.suspects, state.completedLevels);
@@ -838,42 +916,10 @@ function initBasicEvents() {
               persistState();
               document.dispatchEvent(new CustomEvent('interrogation-start'));
             } else if (state.interrogation.status === 'won') {
-              const totalStars = calculateTotalStars(state.levelProgress);
-              const maxStars = calculateMaxStars(activeCase.getTotalLevels());
-              const conclusionBody = `
-                <p>${activeCase.CASE_CONCLUSION.story}</p>
-                <p style="margin-top: 12px;">${activeCase.CASE_CONCLUSION.nextSteps}</p>
-              `;
-              setTimeout(() => {
-                showConclusionModal(
-                  `${activeCase.CASE_INTRO.subtitle?.toUpperCase() || 'CASO #001'} · ENCERRADO`,
-                  conclusionBody,
-                  {
-                    score: state.score,
-                    stars: `${totalStars}/${maxStars}`,
-                    missions: `${state.completedLevels.length}/${activeCase.getTotalLevels()}`,
-                  }
-                );
-              }, 500);
+              setTimeout(() => showActiveCaseConclusion(activeCase), 500);
             }
           } else {
-            const totalStars = calculateTotalStars(state.levelProgress);
-            const maxStars = calculateMaxStars(activeCase.getTotalLevels());
-            const conclusionBody = `
-              <p>${activeCase.CASE_CONCLUSION.story}</p>
-              <p style="margin-top: 12px;">${activeCase.CASE_CONCLUSION.nextSteps}</p>
-            `;
-            setTimeout(() => {
-              showConclusionModal(
-                `${activeCase.CASE_INTRO.subtitle?.toUpperCase() || 'CASO #001'} · ENCERRADO`,
-                conclusionBody,
-                {
-                  score: state.score,
-                  stars: `${totalStars}/${maxStars}`,
-                  missions: `${state.completedLevels.length}/${activeCase.getTotalLevels()}`,
-                }
-              );
-            }, 500);
+            setTimeout(() => showActiveCaseConclusion(activeCase), 500);
           }
         }
       }
@@ -1004,6 +1050,10 @@ function initBasicEvents() {
         const help = document.getElementById('editor-help');
         if (help) help.textContent = 'No sandbox deste caso, SELECT, WITH, INSERT, UPDATE e DELETE são permitidos.';
         setResults('<p class="placeholder-text">Use SELECT/WITH ou uma alteração DML controlada no banco temporário.</p>');
+      } else if (['case005', 'case006'].includes(state.currentCase)) {
+        const help = document.getElementById('editor-help');
+        if (help) help.textContent = 'No sandbox deste caso, SELECT, WITH, INSERT, UPDATE e CREATE TABLE/INDEX/TRIGGER são permitidos.';
+        setResults('<p class="placeholder-text">Explore consultas e alterações no banco temporário; ao voltar à missão, o progresso canônico será restaurado.</p>');
       }
     });
   }
@@ -1156,6 +1206,7 @@ function initBasicEvents() {
     const evidenceId = btn.dataset.evidenceId;
     const result = presentEvidence(fc, state.completedLevels, activeCase.GAMEPLAY.timeline, state.interrogation, evidenceId);
     state.interrogation = result.state;
+    if (result.completed && !state.completedAt) state.completedAt = new Date().toISOString();
     persistState();
 
     if (result.accepted) {
@@ -1164,35 +1215,8 @@ function initBasicEvents() {
         setInterrogationFeedback(result.message || 'Evidência aceita.', true);
         setTimeout(() => {
           hideInterrogationModal();
-          const totalStars = calculateTotalStars(state.levelProgress);
-          const maxStars = calculateMaxStars(activeCase.getTotalLevels());
-          const conclusionBody = `
-            <p>${activeCase.CASE_CONCLUSION.story}</p>
-            <p style="margin-top: 12px;">${activeCase.CASE_CONCLUSION.nextSteps}</p>
-          `;
-showConclusionModal(
-            `${activeCase.CASE_INTRO.subtitle?.toUpperCase() || 'CASO #001'} · ENCERRADO`,
-            conclusionBody,
-            {
-              score: state.score,
-              stars: `${totalStars}/${maxStars}`,
-              missions: `${state.completedLevels.length}/${activeCase.getTotalLevels()}`,
-            }
-          );
-          // Adiciona botão de certificado na tela de conclusão
-          setTimeout(() => {
-            const modal = document.getElementById('conclusion-modal');
-            if (modal) {
-              const certBtn = document.createElement('button');
-              certBtn.className = 'action-btn';
-              certBtn.textContent = '🏆 Ver Certificado';
-              certBtn.addEventListener('click', () => {
-                showCertificateModal(activeCase);
-              });
-              const body = document.getElementById('conclusion-body') || modal.querySelector('.modal-body');
-              body?.appendChild(certBtn);
-            }
-          }, 1600);        }, 1500);
+          showActiveCaseConclusion(activeCase);
+        }, 1500);
       } else {
         const unlockedEvidences = getUnlockedEvents(activeCase.GAMEPLAY.timeline, state.completedLevels);
         showInterrogationModal(fc, state.interrogation, unlockedEvidences);

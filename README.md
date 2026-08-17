@@ -2,9 +2,9 @@
 
 Autor: Tiago Silva
 
-Jogo web para ensinar SQL por meio de quatro investigações conectadas — fraude financeira, vazamento de dados, lavagem com criptoativos e sabotagem de estoque — e 12 projetos independentes de análise de dados.
+Jogo web para ensinar SQL por meio de seis investigações conectadas — fraude financeira, vazamento de dados, lavagem com criptoativos, sabotagem de estoque, normalização de uma planilha e construção de um Data Warehouse — e 12 projetos independentes de análise de dados.
 
-Antes das consultas, cada cenário apresenta uma **Etapa 0 — Análise do Banco** com entidades, relacionamentos, decisões de design e checkpoints conceituais. O Caso 001 introduz normalização de forma explícita. Os Casos 002 e 004 e a missão 10 dos projetos de E-Commerce, Vendas, Logística, Educação, Financeiro e Setor Público terminam com exercícios práticos de `CREATE VIEW` para produzir relatórios reutilizáveis.
+Antes das consultas, cada cenário apresenta uma **Etapa 0 — Análise do Banco** com entidades, relacionamentos, decisões de design e checkpoints conceituais. O Caso 005 pratica 1FN, 2FN, 3FN, PKs, FKs e relacionamentos; o Caso 006 cobre limpeza, ETL, star schema, OLAP, índices e auditoria. Os Casos 002, 004 e 006 e a missão 10 dos projetos aplicáveis incluem exercícios de `CREATE VIEW` para produzir relatórios reutilizáveis.
 
 ## Licença
 
@@ -114,7 +114,7 @@ src/
   ui.js             # Renderização e eventos da interface
   db.js             # Criação, seed e execução do SQLite (sql.js)
   levels.js         # Caso 001: análise do banco, 12 missões e gameplay
-  cases/            # Casos 002–004 e 12 projetos, com schemas e missões próprias
+  cases/            # Casos 002–006 e 12 projetos, com schemas e missões próprias
   validator.js      # Validação de resultados e conceitos SQL
   executor.js       # Executor SQL seguro (bloqueia DDL/DML destrutivo)
   scoring.js        # Estrelas e pontuação
@@ -152,7 +152,7 @@ painel Dicas (HTML escapado)
 - **Servidor Node opcional**: `server.js` serve estáticos e proxy de IA; sem ele, o jogo funciona com dicas locais.
 - **sql.js**: SQLite via WebAssembly.
 - **localStorage**: persistência do progresso.
-- **DDL com escopo mínimo**: `CREATE VIEW` só é liberado nas missões próprias dos Casos 002 e 004 e na missão 10 dos projetos aplicáveis; nome, conteúdo e prévia da view são validados. Os demais DDLs continuam bloqueados.
+- **Mutações com escopo mínimo**: `CREATE VIEW` é liberado apenas nas missões próprias. `INSERT`, `UPDATE`, `CREATE INDEX` e `CREATE TRIGGER` são aceitos somente nas missões de modelagem e ETL que os exigem. A solução é executada em um savepoint, validada contra o estado de referência e só então persistida.
 - **Segurança**: a chave do Ollama nunca é exposta ao browser. O servidor valida entrada, aplica rate limit, timeout e sanitiza a resposta do modelo.
 
 ## Status
@@ -168,5 +168,7 @@ painel Dicas (HTML escapado)
 - [x] Fase 9 — Refinamento visual e diagrama ER
 - [x] Fase 10 — Integração das transcrições do curso
 - [x] Etapa 0 — Normalização, relacionamentos e design por caso
-- [x] Missões práticas de CREATE VIEW nos Casos 002 e 004 e na missão 10 dos projetos aplicáveis
+- [x] Missões práticas de CREATE VIEW nos Casos 002, 004 e 006 e na missão 10 dos projetos aplicáveis
+- [x] Casos 005 e 006 — Normalização, relacionamentos, ETL, Data Warehouse, OLAP, índices e triggers
+- [x] Certificados exportáveis para cenários concluídos
 - [x] Dicas com IA via Ollama Cloud (proxy Node, fallback local)

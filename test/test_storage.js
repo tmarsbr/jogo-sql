@@ -255,6 +255,7 @@ mockStorage.setItem('sql_detective_v2', JSON.stringify({
       bonusPoints: 'not-number',
       interrogation: { status: 'invalid-status', stepIndex: 'abc', presentedEvidenceIds: [123, 'valid', null, 'valid'] },
       lessonsRead: [123, 'sql-intro', null, 'sql-intro'],
+      completedAt: 'data-invalida',
     },
   },
 }));
@@ -267,6 +268,7 @@ assert(p.interrogation.status === 'locked', 'interrogation.status inválido -> l
 assert(p.interrogation.stepIndex === 0, 'interrogation.stepIndex inválido -> 0');
 assert(p.interrogation.presentedEvidenceIds.length === 1, 'presentedEvidenceIds dedup e filtra');
 assert(p.lessonsRead.length === 1 && p.lessonsRead[0] === 'sql-intro', 'lessonsRead dedup e filtra');
+assert(p.completedAt === null, 'completedAt inválido -> null');
 
 // === Teste 18: Progresso dos projetos analiticos persiste ===
 console.log('\n[18] Persistencia dos projetos analiticos');
@@ -286,6 +288,7 @@ saveState({
       score: 800,
       evidence: ['E-commerce 1', 'E-commerce 2', 'E-commerce 3'],
       lessonsRead: ['aggregation-groupby'],
+      completedAt: '2026-08-17T12:00:00.000Z',
     },
   },
   currentLevel: 4,
@@ -298,6 +301,7 @@ saveState({
   score: 800,
   evidence: ['E-commerce 1', 'E-commerce 2', 'E-commerce 3'],
   lessonsRead: ['aggregation-groupby'],
+  completedAt: '2026-08-17T12:00:00.000Z',
 });
 const projectSave = loadState();
 assert(projectSave.currentCase === 'proj-ecommerce', 'Projeto ativo e restaurado apos recarregar');
@@ -305,6 +309,7 @@ assert(projectSave.progressByCase['proj-ecommerce'].currentLevel === 4, 'Missao 
 assert(projectSave.progressByCase['proj-ecommerce'].completedLevels.length === 3, 'Missoes concluidas do projeto sao preservadas');
 assert(projectSave.progressByCase['proj-ecommerce'].score === 800, 'Pontuacao do projeto e preservada');
 assert(projectSave.progressByCase['proj-ecommerce'].lessonsRead[0] === 'aggregation-groupby', 'Aulas lidas do projeto sao preservadas');
+assert(projectSave.progressByCase['proj-ecommerce'].completedAt === '2026-08-17T12:00:00.000Z', 'Data de conclusao e preservada');
 
 // === Resultado ===
 console.log('\n' + '='.repeat(50));

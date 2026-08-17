@@ -6,9 +6,9 @@
  *
  * Regras:
  * - Por padrão, apenas uma instrução de leitura iniciada por SELECT ou WITH.
- * - Missões específicas podem liberar somente CREATE VIEW, sem abrir outros DDLs.
+ * - Missões específicas podem liberar CREATE VIEW ou uma mutação de modelagem controlada.
  * - Bloqueia: INSERT, UPDATE, DELETE, DROP, ALTER, CREATE, ATTACH, DETACH, PRAGMA, VACUUM.
- *   Exceções são opt-in e estreitas: DML controlado no sandbox e CREATE VIEW em missões próprias.
+ *   Exceções são opt-in e estreitas: DML/DDL controlado e CREATE VIEW em missões próprias.
  * - Bloqueia múltiplas instruções na mesma execução.
  * - Trata comentários e strings antes de analisar.
  */
@@ -174,6 +174,21 @@ function isCreateViewStatement(sql) {
 }
 
 /**
+ * Reconhece um CREATE TRIGGER completo. Triggers possuem ponto-e-vírgula dentro
+ * de BEGIN/END, por isso não podem usar a contagem genérica de statements.
+ * O executor continua bloqueando palavras perigosas e deixa a sintaxe final a
+ * cargo do SQLite.
+ * @param {string} sql SQL normalizado
+ * @returns {boolean}
+ */
+function isCreateTriggerStatement(sql) {
+  const match = sql.trim().match(
+    /^CREATE\s+TRIGGER\s+(?:IF\s+NOT\s+EXISTS\s+)?[A-Za-z_][A-Za-z0-9_]*\s+(?:BEFORE|AFTER|INSTEAD\s+OF)\s+(?:INSERT|UPDATE(?:\s+OF\s+[A-Za-z_][A-Za-z0-9_]*(?:\s*,\s*[A-Za-z_][A-Za-z0-9_]*)*)?|DELETE)\s+ON\s+[A-Za-z_][A-Za-z0-9_]*\b[\s\S]*?\bBEGIN\b([\s\S]+;\s*)END\s*;?\s*$/i
+  );
+  return Boolean(match) && countStatements(match[1]) === 1;
+}
+
+/**
  * Reconhece comandos DDL seguros para os casos de modelagem (005/006):
  * CREATE TABLE, CREATE INDEX, CREATE TRIGGER.
  * Não permite DROP, ALTER ou ATTACH.
@@ -181,7 +196,7 @@ function isCreateViewStatement(sql) {
  * @returns {boolean}
  */
 function isDdlStatement(sql) {
-  return /^CREATE\s+(?:TABLE(?:\s+IF\s+NOT\s+EXISTS)?|INDEX(?:\s+IF\s+NOT\s+EXISTS)?|TRIGGER)\b/i.test(sql);
+  return /^CREATE\s+(?:TABLE(?:\s+IF\s+NOT\s+EXISTS)?|(?:UNIQUE\s+)?INDEX(?:\s+IF\s+NOT\s+EXISTS)?|TRIGGER(?:\s+IF\s+NOT\s+EXISTS)?)\b/i.test(sql);
 }
 
 /**
@@ -250,7 +265,7 @@ function getComparisonSyntaxHint(sql) {
  *
  * @param {string} sql texto da query do jogador
  * @param {Database} db instância do SQLite (sql.js)
- * @param {{allowDml?: boolean, allowCreateView?: boolean}} [options]
+ * @param {{allowDml?: boolean, allowCreateView?: boolean, allowDdl?: boolean}} [options]
  * @returns {{type: string, columns: string[], rows: any[][], rowCount: number, message: string}}
  */
 export function executeQuery(sql, db, options = {}) {
@@ -269,8 +284,10 @@ export function executeQuery(sql, db, options = {}) {
     return { type: RESULT_ERROR, columns: [], rows: [], rowCount: 0, message: 'Query vazia (apenas comentários).' };
   }
 
-  // Verifica múltiplas instruções
-  const stmtCount = countStatements(clean);
+  // Verifica múltiplas instruções. O bloco BEGIN/END de um trigger é uma única
+  // instrução SQLite, embora contenha ponto-e-vírgula internamente.
+  const createTrigger = Boolean(options.allowDdl) && isCreateTriggerStatement(clean);
+  const stmtCount = createTrigger ? 1 : countStatements(clean);
   if (stmtCount > 1) {
     return { type: RESULT_BLOCKED, columns: [], rows: [], rowCount: 0, message: 'Múltiplas instruções não são permitidas. Execute uma query por vez.' };
   }
@@ -284,7 +301,11 @@ export function executeQuery(sql, db, options = {}) {
   const createView = Boolean(options.allowCreateView) && isCreateViewStatement(trimmed);
   const ddl = Boolean(options.allowDdl) && isDdlStatement(trimmed);
   if (firstKw !== 'SELECT' && firstKw !== 'WITH' && !writable && !createView && !ddl) {
-    const allowed = options.allowCreateView ? 'SELECT, WITH ou CREATE VIEW' : 'SELECT ou WITH';
+    const allowedCommands = ['SELECT', 'WITH'];
+    if (options.allowDml) allowedCommands.push('INSERT', 'UPDATE', 'DELETE');
+    if (options.allowCreateView) allowedCommands.push('CREATE VIEW');
+    if (options.allowDdl) allowedCommands.push('CREATE TABLE/INDEX/TRIGGER');
+    const allowed = allowedCommands.join(', ').replace(/, ([^,]+)$/, ' ou $1');
     return { type: RESULT_BLOCKED, columns: [], rows: [], rowCount: 0, message: `Comando "${firstKw}" não permitido. Use ${allowed}.` };
   }
 
@@ -292,7 +313,8 @@ export function executeQuery(sql, db, options = {}) {
   const allowedKeywords = [];
   if (writable) allowedKeywords.push(firstKw);
   if (createView) allowedKeywords.push('CREATE');
-  if (ddl) allowedKeywords.push('CREATE', 'TABLE', 'INDEX', 'TRIGGER', 'ON', 'AFTER', 'BEFORE', 'UPDATE', 'INSERT', 'DELETE', 'FOR', 'EACH', 'ROW', 'BEGIN', 'END', 'OLD', 'NEW');
+  if (ddl) allowedKeywords.push('CREATE');
+  if (createTrigger) allowedKeywords.push('UPDATE', 'INSERT', 'DELETE');
   const blocked = findBlockedKeyword(trimmed, allowedKeywords);
   if (blocked) {
     return { type: RESULT_BLOCKED, columns: [], rows: [], rowCount: 0, message: `Comando "${blocked}" não é permitido neste jogo.` };
@@ -334,4 +356,4 @@ export function executeQueryRaw(sql, db) {
 }
 
 // Exporta funções auxiliares para testes
-export { stripComments, normalizeSQL, countStatements, getFirstKeyword, isCreateViewStatement, findBlockedKeyword, stripStringLiterals, getComparisonSyntaxHint };
+export { stripComments, normalizeSQL, countStatements, getFirstKeyword, isCreateViewStatement, isCreateTriggerStatement, isDdlStatement, findBlockedKeyword, stripStringLiterals, getComparisonSyntaxHint };

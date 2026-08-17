@@ -41,7 +41,7 @@ function assert(condition, msg) {
 
 // Importa funções reais do executor
 const executor = loadExecutor();
-const { executeQuery, stripComments, normalizeSQL, countStatements, getFirstKeyword, isCreateViewStatement, findBlockedKeyword,
+const { executeQuery, stripComments, normalizeSQL, countStatements, getFirstKeyword, isCreateViewStatement, isCreateTriggerStatement, findBlockedKeyword,
         getComparisonSyntaxHint, RESULT_OK, RESULT_ERROR, RESULT_BLOCKED, RESULT_EMPTY } = executor;
 
 // Importa schema/seed reais
@@ -225,6 +225,31 @@ async function run() {
     r = executeQuery(query, db, { allowCreateView: true });
     assert(r.type === RESULT_BLOCKED, `Continua bloqueado: ${query.substring(0, 42)}`);
   }
+
+  // === Teste 23: DDL controlado e trigger BEGIN/END ===
+  console.log('\n[23] DDL controlado para missões de modelagem');
+  r = executeQuery('CREATE TABLE executor_audit (registro_id INTEGER, nome_novo TEXT);', db, { allowDdl: true });
+  assert(r.type === RESULT_EMPTY, 'CREATE TABLE permitido somente com allowDdl');
+
+  const triggerSql = "CREATE TRIGGER trg_executor_audit AFTER UPDATE ON funcionarios FOR EACH ROW BEGIN INSERT INTO executor_audit (registro_id, nome_novo) VALUES (NEW.id, NEW.nome); END;";
+  assert(isCreateTriggerStatement(triggerSql), 'Reconhece trigger com ponto-e-vírgula dentro de BEGIN/END');
+  r = executeQuery(triggerSql, db, { allowDdl: true });
+  assert(r.type === RESULT_EMPTY, `CREATE TRIGGER permitido como uma instrução (${r.type})`);
+
+  r = executeQuery("UPDATE funcionarios SET nome = 'Nome Teste' WHERE id = 1;", db, { allowDml: true });
+  assert(r.type === RESULT_EMPTY, 'UPDATE controlado dispara o trigger');
+  const auditRows = db.exec('SELECT registro_id, nome_novo FROM executor_audit;')[0].values;
+  assert(auditRows.length === 1 && auditRows[0][0] === 1 && auditRows[0][1] === 'Nome Teste', 'Trigger executa o INSERT de auditoria');
+
+  r = executeQuery(`${triggerSql} DELETE FROM funcionarios;`, db, { allowDdl: true });
+  assert(r.type === RESULT_BLOCKED, 'Statement adicional após END continua bloqueado');
+
+  r = executeQuery(
+    "CREATE TRIGGER trg_duas_acoes AFTER UPDATE ON funcionarios FOR EACH ROW BEGIN INSERT INTO executor_audit VALUES (NEW.id, 'primeira'); INSERT INTO executor_audit VALUES (NEW.id, 'segunda'); END;",
+    db,
+    { allowDdl: true }
+  );
+  assert(r.type === RESULT_BLOCKED, 'Trigger com múltiplas ações internas continua bloqueado');
 
   // === Resultado ===
   console.log('\n' + '='.repeat(50));

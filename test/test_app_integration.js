@@ -257,6 +257,8 @@ function loadAppWithMocks() {
     case002Levels: loadLevelsFrom('cases/case002/levels.js'),
     case003Levels: loadLevelsFrom('cases/case003/levels.js'),
     case004Levels: loadLevelsFrom('cases/case004/levels.js'),
+    case005Levels: loadLevelsFrom('cases/case005/levels.js'),
+    case006Levels: loadLevelsFrom('cases/case006/levels.js'),
     projEcommerceLevels: loadLevelsFrom('cases/proj-ecommerce/levels.js'),
     projClientesLevels: loadLevelsFrom('cases/proj-clientes/levels.js'),
     projVendasLevels: loadLevelsFrom('cases/proj-vendas/levels.js'),
@@ -617,7 +619,7 @@ console.log('\n[7] Recalcular score preserva bonus de gameplay');
   assert(state.score === 700, 'estado mantem o bonus depois de melhorar uma missao');
 }
 
-console.log('\n[8] Views concluidas sao restauradas ao recriar o banco em memoria');
+console.log('\n[8] Views e mutacoes concluidas sao restauradas ao recriar o banco em memoria');
 {
   const { app } = loadAppWithMocks();
   const executed = [];
@@ -632,12 +634,13 @@ console.log('\n[8] Views concluidas sao restauradas ao recriar o banco em memori
       { id: 1, executionMode: 'select', referenceQuery: 'SELECT 1;' },
       { id: 2, executionMode: 'create_view', viewName: 'vw_concluida', referenceQuery: 'CREATE VIEW vw_concluida AS SELECT 1 AS valor;' },
       { id: 3, executionMode: 'create_view', viewName: 'vw_pendente', referenceQuery: 'CREATE VIEW vw_pendente AS SELECT 2 AS valor;' },
+      { id: 4, executionMode: 'ddl', referenceQuery: 'INSERT INTO carga VALUES (1);' },
     ],
   };
 
-  const restored = app.restoreCompletedMissionViews(caseDefinition, db, [1, 2]);
-  assert(restored.length === 1 && restored[0] === 'vw_concluida', 'restaura somente a view da missao concluida');
-  assert(executed.length === 1 && executed[0].includes('vw_concluida'), 'executa a definicao canonica da view concluida');
+  const restored = app.restoreCompletedMissionViews(caseDefinition, db, [1, 2, 4]);
+  assert(restored.length === 2 && restored[0] === 'vw_concluida' && restored[1] === 4, 'restaura view e mutacao das missoes concluidas');
+  assert(executed.length === 2 && executed[0].includes('vw_concluida') && executed[1].includes('INSERT INTO carga'), 'executa as definicoes canonicas em ordem de missao');
 }
 
 console.log('\n[9] Fluxo de projeto percorre selecao, Etapa 0 e primeira missao');
@@ -745,6 +748,19 @@ console.log('\n[13] Fim da rolagem marca e persiste a aula atual');
   const saved = JSON.parse(localStorage.getItem('sql_detective_v2'));
   assert(state.lessonsRead.includes('sql-intro'), 'aula atual é marcada como lida');
   assert(saved.progressByCase.case001.lessonsRead.includes('sql-intro'), 'leitura permanece no estado salvo');
+}
+
+console.log('\n[14] Casos com mutações mantêm a sequência obrigatória');
+{
+  const { app, state } = loadAppWithMocks();
+  state.currentCase = 'case005';
+  state.completedLevels = [];
+  app.loadMission(14);
+  assert(state.currentLevel === 1, 'tentativa de abrir missão futura redireciona para a primeira pendente');
+
+  state.completedLevels = [1, 2];
+  app.loadMission(4);
+  assert(state.currentLevel === 3, 'sequência avança somente até a próxima missão ainda não concluída');
 }
 
 // ====================================================================

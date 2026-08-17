@@ -169,6 +169,8 @@ ui.renderMission(lessonLevel, [lessonItem], ['dml-select-where']);
 assert(get('briefing-content').innerHTML.includes('✓ LIDA'), 'CTA marca aula lida');
 ui.renderMissionRail([lessonLevel], 2, [], null, ['dml-select-where']);
 assert(get('rail-buttons-container').innerHTML.includes('rail-lesson-check'), 'rail marca aula lida');
+ui.renderMissionRail([lessonLevel], 2, [], null, [], [2]);
+assert(get('rail-buttons-container').innerHTML.includes('disabled aria-disabled="true"'), 'rail desabilita missão sequencial ainda bloqueada');
 
 console.log('\n[7] CTA da aula abre também o painel externo no mobile');
 ui.initSidebarTabs();

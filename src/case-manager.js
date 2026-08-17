@@ -119,13 +119,13 @@ export const CASE_REGISTRY = [
     ...projFutebolLevels,
   },
   {
-    id: 'case005', number: '05', icon: '🗂️', lockedByDefault: true, type: 'investigation',
+    id: 'case005', number: '005', icon: '🗂️', lockedByDefault: true, type: 'investigation',
     title: 'A Planilha do Inferno', category: 'Normalização e Relacionamentos',
     description: 'Transforme uma planilha bagunçada em um modelo OLTP normalizado até a 3FN, com PKs, FKs e cardinalidades corretas.',
     ...case005Levels,
   },
   {
-    id: 'case006', number: '06', icon: '🏢', lockedByDefault: true, type: 'investigation',
+    id: 'case006', number: '006', icon: '🏢', lockedByDefault: true, type: 'investigation',
     title: 'TechBrasil: Sua Primeira Semana', category: 'OLTP, ETL e Data Warehouse',
     description: 'Construa o Data Warehouse completo: limpe dados sujos, monte o ETL, crie o star schema e entregue relatórios para o CFO.',
     ...case006Levels,

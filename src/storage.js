@@ -30,6 +30,7 @@ function getDefaultCaseProgress() {
     bonusPoints: 0,
     interrogation: { status: 'locked', stepIndex: 0, presentedEvidenceIds: [] },
     lessonsRead: [],
+    completedAt: null,
   };
 }
 
@@ -90,6 +91,10 @@ function validateCaseProgress(data) {
     result.lessonsRead = [...new Set(data.lessonsRead.filter(id => typeof id === 'string'))];
   }
 
+  if (typeof data.completedAt === 'string' && Number.isFinite(Date.parse(data.completedAt))) {
+    result.completedAt = new Date(data.completedAt).toISOString();
+  }
+
   return result;
 }
 
@@ -121,6 +126,7 @@ function hasProgress(progress) {
     || progress.bonusPoints > 0
     || (progress.interrogation && progress.interrogation.status !== 'locked')
     || (progress.lessonsRead && progress.lessonsRead.length > 0)
+    || progress.completedAt !== null
   ));
 }
 
@@ -153,6 +159,7 @@ function serializeState(stateData) {
       bonusPoints: stateData.bonusPoints,
       interrogation: stateData.interrogation,
       lessonsRead: stateData.lessonsRead,
+      completedAt: stateData.completedAt,
     });
   }
   return { currentCase: normalized.currentCase, progressByCase: normalized.progressByCase };
