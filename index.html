@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <meta name="description" content="SQL Detective — jogo educacional de SQL com tema de investigação de fraude financeira." />
+  <meta name="description" content="SQL Detective — Jogo educacional de SQL e análise de dados forenses." />
   <title>SQL Detective — O Mistério das Transações Fantasmas</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -12,46 +12,116 @@
   <link rel="stylesheet" href="index.css" />
 </head>
 <body>
-  <!-- Escolha de caso: exibida antes da narrativa inicial -->
-  <div id="case-select-screen" class="case-select-screen" aria-label="Escolher caso ou projeto">
-    <div class="case-select-content">
-      <p class="case-select-eyebrow">ARQUIVO & ANALYTICS</p>
-      <h1>SQL Detective</h1>
-      <p>Escolha uma investigação policial ou um projeto de análise de dados de negócios.</p>
 
-      <section class="case-selection-group" aria-labelledby="investigation-section-title">
-        <h2 id="investigation-section-title" class="case-section-title">🕵️‍♂️ Casos Investigativos</h2>
-        <p class="case-section-desc">Investigações com histórias conectadas, pistas e desafios sequenciais.</p>
+  <!-- Mensagem de carregamento global -->
+  <div id="app-loading" class="loading-overlay" role="status" aria-live="polite">
+    <div class="loading-spinner" aria-hidden="true"></div>
+    <p class="loading-text">CARREGANDO TERMINAL FORENSE…</p>
+  </div>
+
+  <!-- Mensagem de erro global (escondida por padrão) -->
+  <div id="app-error" class="error-banner" role="alert" aria-live="assertive" hidden>
+    <p id="app-error-msg">Erro ao carregar o jogo.</p>
+    <button id="app-error-retry" type="button">Tentar novamente</button>
+  </div>
+
+  <!-- ══ 1. LOBBY: ARQUIVO CENTRAL (#case-select-screen) ══ -->
+  <div id="case-select-screen" class="case-select-screen" aria-label="Arquivo Central e Seleção de Cenários">
+    <div class="case-select-content">
+      <header class="case-select-header">
+        <div>
+          <div class="case-select-eyebrow">
+            <span class="blip-dot"></span>
+            <span>ARQUIVO CENTRAL · TERMINAL ONLINE</span>
+          </div>
+          <h1>SQL DETECTIVE</h1>
+          <p>Escolha uma investigação policial ou um projeto de análise de dados de negócios.</p>
+        </div>
+        <div class="lobby-stats-grid">
+          <div class="lobby-stat-card">
+            <div class="lobby-stat-value" style="color: var(--accent-cyan);">04</div>
+            <div class="lobby-stat-label">INVESTIGAÇÕES</div>
+          </div>
+          <div class="lobby-stat-card">
+            <div class="lobby-stat-value" style="color: var(--accent-purple-light);">12</div>
+            <div class="lobby-stat-label">PROJETOS</div>
+          </div>
+          <div class="lobby-stat-card">
+            <div id="lobby-missions-stat" class="lobby-stat-value" style="color: var(--status-success-light);">00/12</div>
+            <div class="lobby-stat-label">MISSÕES</div>
+          </div>
+        </div>
+      </header>
+
+      <nav class="lobby-tabs-nav" aria-label="Abas do Arquivo Central" role="tablist">
+        <button id="lobby-tab-inv" type="button" class="lobby-tab-btn active investigations" role="tab" aria-selected="true" aria-controls="investigation-section">CASOS INVESTIGATIVOS</button>
+        <button id="lobby-tab-proj" type="button" class="lobby-tab-btn projects" role="tab" aria-selected="false" aria-controls="project-section" tabindex="-1">PROJETOS DE DADOS</button>
+      </nav>
+
+      <section id="investigation-section" class="case-selection-group" role="tabpanel" aria-labelledby="lobby-tab-inv">
         <div id="case-cards" class="case-cards"></div>
       </section>
 
-      <section id="project-section" class="case-selection-group" aria-labelledby="project-section-title">
-        <h2 id="project-section-title" class="case-section-title">📊 Projetos de Análise de Dados (Blog do SQL)</h2>
-        <p class="case-section-desc">Cenários de negócios end-to-end com acesso livre para responder perguntas reais com SQL.</p>
+      <section id="project-section" class="case-selection-group" role="tabpanel" aria-labelledby="lobby-tab-proj" hidden>
         <div id="project-cards" class="case-cards"></div>
       </section>
     </div>
   </div>
-  <!-- Tela inicial -->
+
+  <!-- ══ 2. DOSSIÊ INICIAL (#intro-screen) ══ -->
   <div id="intro-screen" class="intro-screen hidden">
-    <div class="intro-content">
-      <h1 class="intro-title">SQL Detective</h1>
-      <h2 class="intro-subtitle">O Mistério das Transações Fantasmas</h2>
-      <div class="intro-story">
-        <p>Uma auditoria interna detectou transações bancárias suspeitas na empresa TechFin.</p>
-        <p>Valores altos foram movimentados para uma conta externa misteriosa, fora do horário normal de trabalho.</p>
-        <p>Você é o(a) detective responsável por investigar o banco de dados e descobrir o que aconteceu.</p>
+    <div class="dossier-card">
+      <div class="dossier-scanner"></div>
+      <div class="dossier-header">
+        <span id="dossier-header-case" class="dossier-header-tag">CASO #001 · DEPARTAMENTO FINANCEIRO</span>
+        <span id="dossier-header-badge" class="pill-badge confidential">🚨 CONFIDENCIAL</span>
       </div>
-      <p class="intro-mission">Resolva as 12 missões para concluir a investigação.</p>
-      <button id="btn-start" type="button" class="btn btn-primary btn-large">Iniciar cenário</button>
+      <div class="dossier-body">
+        <div class="dossier-main">
+          <h1 class="intro-subtitle">O Mistério das Transações Fantasmas</h1>
+          <div class="dossier-story intro-story">
+            <p>Uma auditoria interna detectou transações bancárias suspeitas na empresa TechFin.</p>
+            <p>Valores altos foram movimentados para uma conta externa misteriosa, fora do horário normal de trabalho.</p>
+            <p>Você é o(a) detective responsável por investigar o banco de dados e descobrir o que aconteceu.</p>
+          </div>
+          <div class="dossier-actions">
+            <button id="btn-start" type="button" class="btn btn-primary">ABRIR INQUÉRITO →</button>
+            <button id="btn-intro-back" type="button" class="btn btn-secondary">VOLTAR AO ARQUIVO</button>
+          </div>
+        </div>
+        <div class="dossier-meta">
+          <div class="dossier-meta-item">
+            <div id="dossier-meta-empresa-label" class="meta-label">EMPRESA</div>
+            <div id="dossier-meta-empresa" class="meta-value">TechFin S.A.</div>
+          </div>
+          <div class="dossier-meta-item">
+            <div id="dossier-meta-janela-label" class="meta-label">JANELA</div>
+            <div id="dossier-meta-janela" class="meta-value">MAR/2024</div>
+          </div>
+          <div class="dossier-meta-item">
+            <div class="meta-label">CLASSIFICAÇÃO</div>
+            <div id="dossier-meta-classificacao" class="meta-value" style="color: var(--status-danger-light);">FRAUDE FINANCEIRA</div>
+          </div>
+          <div class="dossier-meta-item">
+            <div class="meta-label">MISSÕES</div>
+            <div id="dossier-meta-missoes" class="meta-value" style="color: var(--accent-cyan);">12 CONSULTAS SQL</div>
+          </div>
+        </div>
+      </div>
+      <div class="dossier-footer intro-mission">
+        RESOLVA AS 12 MISSÕES PARA CONCLUIR A INVESTIGAÇÃO
+      </div>
     </div>
   </div>
 
-  <!-- Etapa conceitual exibida entre a narrativa e as missões SQL -->
+  <!-- ══ 3. ETAPA 0: ANÁLISE DO BANCO (#database-analysis-screen) ══ -->
   <div id="database-analysis-screen" class="database-analysis-screen hidden" aria-labelledby="database-analysis-title">
     <main class="database-analysis-content">
-      <p class="database-analysis-eyebrow">ETAPA 0 · ANÁLISE DO BANCO</p>
-      <h1 id="database-analysis-title" tabindex="-1">Como este cenário foi modelado</h1>
+      <div class="database-analysis-eyebrow-wrap">
+        <span class="database-analysis-eyebrow">ETAPA 0 · ANÁLISE DO BANCO</span>
+        <span class="database-analysis-divider"></span>
+      </div>
+      <h1 id="database-analysis-title" tabindex="-1">Evidências separadas, identidades conectadas</h1>
       <p id="database-analysis-summary" class="database-analysis-summary"></p>
 
       <section class="database-analysis-section" aria-labelledby="database-analysis-entities-title">
@@ -71,205 +141,278 @@
       </section>
 
       <div class="database-analysis-actions">
-        <button id="btn-analysis-start" type="button" class="btn btn-primary btn-large">Começar missões SQL</button>
+        <button id="btn-analysis-start" type="button" class="btn btn-primary">COMEÇAR MISSÕES SQL →</button>
       </div>
     </main>
   </div>
 
-  <!-- Mensagem de carregamento global -->
-  <div id="app-loading" class="loading-overlay">
-    <div class="loading-spinner" aria-hidden="true"></div>
-    <p class="loading-text">Carregando SQL Detective…</p>
-  </div>
-
-  <!-- Mensagem de erro global (escondida por padrão) -->
-  <div id="app-error" class="error-banner" hidden>
-    <p id="app-error-msg">Erro ao carregar o jogo.</p>
-    <button id="app-error-retry" type="button">Tentar novamente</button>
-  </div>
-
+  <!-- ══ 4. CABEÇALHO DO INQUÉRITO (.app-header) ══ -->
   <header class="app-header">
-    <h1 class="app-title">SQL Detective</h1>
-    <p class="app-subtitle">O Mistério das Transações Fantasmas</p>
-    <div class="app-status-bar">
-      <span id="db-status" class="status-pill status-pending" aria-live="polite">
-        Banco: aguardando
-      </span>
-      <span id="mission-status" class="status-pill" aria-live="polite">
-        Missão: —
-      </span>
+    <div class="header-left">
+      <span class="blip-dot"></span>
+      <span class="app-title">SQL DETECTIVE</span>
+      <span id="header-case-tag" class="pill-badge case-tag">CASO #001</span>
+      <span id="header-badge-tag" class="pill-badge confidential">🚨 CONFIDENCIAL</span>
     </div>
-    <button id="btn-sound" type="button" class="btn-sound" title="Ativar/desativar som" aria-label="Ativar ou desativar efeitos sonoros">🔊</button>
-    <button id="btn-cases" type="button" class="btn btn-secondary btn-cases">Trocar cenário</button>
+
+    <div class="header-center">
+      <div class="header-progress-track">
+        <div id="header-progress-bar" class="header-progress-bar" style="width: 0%;"></div>
+      </div>
+      <span id="header-progress-label" class="header-progress-label">0/12 MISSÕES</span>
+    </div>
+
+    <div class="header-right">
+      <span id="db-status" class="status-pill status-pending" aria-live="polite">● BANCO: CARREGANDO</span>
+      <span id="mission-status" class="status-pill sr-only" aria-live="polite">Missão: —</span>
+      <span id="score-status" class="score-status-pill">0 PTS</span>
+      <button id="btn-sound" type="button" class="btn-sound" title="Ativar/desativar som" aria-label="Som">🔊</button>
+      <button id="btn-cases" type="button" class="btn btn-secondary btn-cases">TROCAR CENÁRIO</button>
+    </div>
   </header>
 
+  <!-- ══ 5. GRID PRINCIPAL: 4 COLUNAS (.app-grid) ══ -->
   <main class="app-grid">
-    <!-- Painel esquerdo: briefing e esquema do banco -->
-    <section class="panel panel-briefing" aria-label="Briefing do cenário">
-      <h2 id="briefing-panel-title" class="panel-title">Cenário</h2>
-      <div class="panel-body" id="briefing-content">
-        <p class="placeholder-text">Nenhuma missão carregada.</p>
+
+    <!-- COLUNA 0: Rail de Missões -->
+    <nav id="mission-rail" class="mission-rail" aria-label="Navegação rápida de missões">
+      <span class="rail-header-label">MISSÕES</span>
+      <div id="rail-buttons-container" style="display: flex; flex-direction: column; gap: 6px; width: 100%; align-items: center;"></div>
+    </nav>
+
+    <!-- COLUNA 1: Briefing do Inquérito -->
+    <section id="panel-briefing" class="panel panel-briefing" aria-label="Briefing do cenário">
+      <div class="panel-header-bar">
+        <span id="briefing-panel-title" class="panel-header-title">INQUÉRITO</span>
+        <span id="mission-num-badge" class="panel-header-sub">MISSÃO 01/12</span>
       </div>
-      <details class="schema-section">
-        <summary>Esquema do banco</summary>
-        <div id="schema-content" class="schema-body">
-          <p class="placeholder-text">O esquema aparecerá aqui após o carregamento do banco.</p>
+      <div class="panel-body-scroll">
+        <div id="briefing-content">
+          <p class="placeholder-text">Nenhuma missão carregada.</p>
         </div>
-      </details>
+        <details class="schema-section">
+          <summary>ESQUEMA DO BANCO</summary>
+          <div id="schema-content" class="schema-body">
+            <p class="placeholder-text">O esquema aparecerá aqui após o carregamento do banco.</p>
+          </div>
+        </details>
+      </div>
     </section>
 
-    <!-- Painel central: editor e resultados -->
-    <section class="panel panel-editor" aria-label="Editor de query e resultados">
-      <h2 id="editor-panel-title" class="panel-title">Análise SQL</h2>
-      <div class="panel-body">
-        <div class="editor-section">
-          <label for="sql-editor" class="editor-label">Query SQL</label>
+    <!-- COLUNA 2: Console Forense / Editor SQL -->
+    <section id="panel-editor" class="panel panel-editor" aria-label="Console Forense">
+      <div class="editor-header-bar">
+        <span id="editor-panel-title" class="panel-header-title">CONSOLE FORENSE</span>
+        <div class="editor-header-actions">
+          <span class="shortcut-hint">CTRL+ENTER EXECUTA</span>
+          <button id="btn-er" type="button" class="btn btn-er">DIAGRAMA ER</button>
+          <button id="btn-sandbox" type="button" class="btn btn-secondary" style="font-size: 9.5px; padding: 7px 11px;">SANDBOX</button>
+          <button id="btn-mission" type="button" class="btn btn-secondary" style="font-size: 9.5px; padding: 7px 11px;" hidden>VOLTAR ÀS MISSÕES</button>
+          <button id="btn-schema" type="button" class="btn btn-secondary" style="font-size: 9.5px; padding: 7px 11px;" hidden>MOSTRAR ESQUEMA</button>
+        </div>
+      </div>
+      <div class="editor-scroll-area">
+        <div class="sql-editor-container">
+          <div class="sql-editor-topbar">
+            <span class="sql-editor-dot"></span>
+            <span class="sql-editor-topbar-label">QUERY.SQL</span>
+          </div>
           <textarea
             id="sql-editor"
             class="sql-editor"
-            placeholder="Escreva sua query aqui…"
+            placeholder="Escreva sua query SELECT ou WITH aqui…"
             spellcheck="false"
             autocomplete="off"
             aria-describedby="editor-help"
           ></textarea>
-          <p id="editor-help" class="editor-help">
-            Use SELECT ou WITH para consultar o banco.
-          </p>
-          <div class="editor-actions">
-            <button id="btn-run" type="button" class="btn btn-primary" disabled>Executar</button>
-            <button id="btn-clear" type="button" class="btn btn-secondary" disabled>Limpar</button>
-            <button id="btn-next" type="button" class="btn btn-success" hidden>Próxima missão</button>
-            <button id="btn-reset" type="button" class="btn btn-danger-outline">Reiniciar progresso</button>
-            <button id="btn-sandbox" type="button" class="btn btn-secondary">Sandbox</button>
-            <button id="btn-mission" type="button" class="btn btn-secondary" hidden>Voltar às missões</button>
-            <button id="btn-schema" type="button" class="btn btn-secondary" hidden>Mostrar esquema</button>
-            <button id="btn-er" type="button" class="btn btn-er">Diagrama ER</button>
-          </div>
         </div>
+        <p id="editor-help" class="sr-only">Use SELECT ou WITH para consultar o banco.</p>
+
+        <div class="editor-actions">
+          <button id="btn-run" type="button" class="btn btn-primary" disabled>EXECUTAR</button>
+          <button id="btn-clear" type="button" class="btn btn-secondary" disabled>LIMPAR</button>
+          <button id="btn-next" type="button" class="btn btn-success" hidden>PRÓXIMA MISSÃO →</button>
+          <span style="flex: 1;"></span>
+          <button id="btn-reset" type="button" class="btn btn-danger-outline">REINICIAR PROGRESSO</button>
+        </div>
+
         <div class="results-section">
-          <h3 class="results-title">Resultados</h3>
+          <div class="results-header">
+            <span class="results-header-title">RESULTADOS</span>
+            <span class="results-header-line"></span>
+          </div>
           <div id="results-container" class="results-container">
-            <p class="placeholder-text">Os resultados aparecerão aqui.</p>
+            <p class="placeholder-text">Aguardando consulta. Escreva sua query e execute.</p>
           </div>
         </div>
       </div>
     </section>
 
-    <!-- Painel direito: dicas, progresso e evidências -->
-    <section class="panel panel-sidebar" aria-label="Dicas, progresso e evidências">
-      <h2 class="panel-title">Progresso</h2>
-      <div class="panel-body">
-        <div class="progress-section">
-          <h3 class="section-subtitle">Progresso</h3>
-          <div id="progress-display" class="progress-display">
-            <p class="placeholder-text">Nenhuma missão concluída ainda.</p>
+    <!-- COLUNA 3: Painel Investigativo (Abas) -->
+    <aside id="panel-sidebar" class="panel panel-sidebar" aria-label="Painel Investigativo">
+      <nav id="sidebar-tabs-nav" class="sidebar-tabs-nav" aria-label="Abas do Painel Investigativo" role="tablist">
+        <button id="sidebar-tab-lesson" type="button" class="sidebar-tab-btn active" data-sidebar-tab="lesson" role="tab" aria-selected="true" aria-controls="sidebar-pane-lesson">AULA</button>
+        <button id="sidebar-tab-evidence" type="button" class="sidebar-tab-btn" data-sidebar-tab="evidence" role="tab" aria-selected="false" aria-controls="sidebar-pane-evidence" tabindex="-1">EVIDÊNCIAS</button>
+        <button id="sidebar-tab-graph" type="button" class="sidebar-tab-btn" data-sidebar-tab="graph" role="tab" aria-selected="false" aria-controls="sidebar-pane-graph" tabindex="-1">REDE</button>
+        <button id="sidebar-tab-timeline" type="button" class="sidebar-tab-btn" data-sidebar-tab="timeline" role="tab" aria-selected="false" aria-controls="sidebar-pane-timeline" tabindex="-1">TEMPO</button>
+        <button id="sidebar-tab-suspects" type="button" class="sidebar-tab-btn" data-sidebar-tab="suspects" role="tab" aria-selected="false" aria-controls="sidebar-pane-suspects" tabindex="-1">SUSPEITOS</button>
+        <button id="sidebar-tab-hints" type="button" class="sidebar-tab-btn" data-sidebar-tab="hints" role="tab" aria-selected="false" aria-controls="sidebar-pane-hints" tabindex="-1">DICAS</button>
+      </nav>
+
+      <div class="sidebar-tabs-content">
+        <!-- Tab 0: Aula -->
+        <div id="sidebar-pane-lesson" class="sidebar-tab-pane active" role="tabpanel" aria-labelledby="sidebar-tab-lesson">
+          <div id="lesson-display">
+            <p class="placeholder-text">A aula aparecerá aqui ao carregar a missão.</p>
           </div>
         </div>
-        <div class="hints-section">
-          <h3 class="section-subtitle">Dicas</h3>
-          <div id="hints-display" class="hints-display">
-            <p class="placeholder-text">As dicas aparecerão aqui durante uma missão.</p>
-          </div>
-          <button id="btn-hint" type="button" class="btn btn-secondary" disabled>Pedir dica</button>
-        </div>
-        <div class="evidence-section">
-          <h3 class="section-subtitle">Evidências</h3>
+
+        <!-- Tab 1: Evidências -->
+        <div id="sidebar-pane-evidence" class="sidebar-tab-pane" role="tabpanel" aria-labelledby="sidebar-tab-evidence">
           <div id="evidence-display" class="evidence-display">
             <p class="placeholder-text">Nenhuma evidência coletada ainda.</p>
           </div>
         </div>
-        <div class="timeline-section" id="timeline-section" hidden>
-          <h3 class="section-subtitle">Linha do Tempo</h3>
-          <div id="timeline-display" class="timeline-display">
-            <p class="placeholder-text">Complete missões para desbloquear eventos.</p>
-          </div>
-          <button id="btn-timeline-check" type="button" class="btn btn-secondary" disabled>Verificar ordem</button>
-        </div>
-        <div class="suspect-section" id="suspect-section" hidden>
-          <h3 class="section-subtitle">Suspeitos</h3>
-          <div id="suspect-display" class="suspect-display">
-            <p class="placeholder-text">Nenhum suspeito identificado ainda.</p>
+
+        <!-- Tab 2: Rede / Grafo -->
+        <div id="sidebar-pane-graph" class="sidebar-tab-pane" role="tabpanel" aria-labelledby="sidebar-tab-graph">
+          <div id="graph-section">
+            <div id="graph-display" class="graph-container">
+              <p class="placeholder-text">Complete missões para revelar a rede de conexões.</p>
+            </div>
+            <p class="graph-hint">NÓS ATIVOS = EVIDÊNCIAS DESCOBERTAS</p>
           </div>
         </div>
-        <div class="graph-section" id="graph-section" hidden>
-          <h3 class="section-subtitle">Rede de Conexões</h3>
-          <div id="graph-display" class="graph-display">
-            <p class="placeholder-text">Complete missões para revelar a rede de evidências.</p>
+
+        <!-- Tab 3: Linha do Tempo -->
+        <div id="sidebar-pane-timeline" class="sidebar-tab-pane" role="tabpanel" aria-labelledby="sidebar-tab-timeline">
+          <div id="timeline-section">
+            <div id="timeline-display" class="timeline-display">
+              <p class="placeholder-text">Complete missões para desbloquear eventos na cronologia.</p>
+            </div>
+            <button id="btn-timeline-check" type="button" class="btn btn-secondary" style="width: 100%; margin-top: 8px; font-size: 10px;" disabled>VERIFICAR ORDEM · +200 PTS</button>
           </div>
-          <p class="graph-hint">Nós ativos = evidências descobertas.</p>
         </div>
-        <div class="interrogation-section" id="interrogation-section" hidden>
-          <button id="btn-start-interrogation" type="button" class="btn btn-primary">Iniciar interrogatório</button>
+
+        <!-- Tab 4: Suspeitos -->
+        <div id="sidebar-pane-suspects" class="sidebar-tab-pane" role="tabpanel" aria-labelledby="sidebar-tab-suspects">
+          <div id="suspect-section">
+            <div id="suspect-display" class="suspect-display">
+              <p class="placeholder-text">Nenhum suspeito identificado ainda.</p>
+            </div>
+            <div id="interrogation-section" style="margin-top: 12px;" hidden>
+              <button id="btn-start-interrogation" type="button" class="btn btn-primary" style="width: 100%; font-size: 10.5px; border-color: var(--accent-purple); background: var(--accent-purple-subtle); color: var(--accent-purple-light);">INICIAR INTERROGATÓRIO</button>
+            </div>
+          </div>
         </div>
+
+        <!-- Tab 5: Dicas -->
+        <div id="sidebar-pane-hints" class="sidebar-tab-pane" role="tabpanel" aria-labelledby="sidebar-tab-hints">
+          <div class="hint-ai-banner">
+            <span class="blip-dot"></span>
+            <span>CANAL CRIPTOGRAFADO · IA FORENSE</span>
+          </div>
+          <div id="hints-display" class="hints-display">
+            <p class="placeholder-text">Dicas aparecerão aqui conforme solicitadas.</p>
+          </div>
+          <button id="btn-hint" type="button" class="btn btn-secondary" style="width: 100%; margin-top: 8px; font-size: 10px;" disabled>SOLICITAR DICA (3 RESTANTES)</button>
+          <p class="hint-notice-sub">Cada dica reduz as estrelas da missão. Máximo de 3 por missão.</p>
+        </div>
+
+        <!-- Compatibilidade de progresso -->
+        <div id="progress-display" style="display: none;"></div>
       </div>
-    </section>
+    </aside>
   </main>
 
-  <!-- Abas para mobile -->
-  <nav class="tabs-nav" id="tabs-nav" hidden>
-    <button id="briefing-tab-label" class="tab-btn active" data-tab="briefing" type="button">Cenário</button>
-    <button class="tab-btn" data-tab="editor" type="button">Editor</button>
-    <button class="tab-btn" data-tab="sidebar" type="button">Dicas &amp; Evidências</button>
+  <!-- Abas para telas móveis -->
+  <nav class="tabs-nav" id="tabs-nav" aria-label="Painéis do jogo" role="tablist" hidden>
+    <button id="briefing-tab-label" class="tab-btn active" data-tab="briefing" type="button" role="tab" aria-selected="true" aria-controls="panel-briefing">Cenário</button>
+    <button class="tab-btn" data-tab="editor" type="button" role="tab" aria-selected="false" aria-controls="panel-editor" tabindex="-1">Editor</button>
+    <button class="tab-btn" data-tab="sidebar" type="button" role="tab" aria-selected="false" aria-controls="panel-sidebar" tabindex="-1">Aula &amp; Evidências</button>
   </nav>
 
-  <footer class="app-footer">
-    <p>SQL Detective — jogo educacional de SQL. Dados fictícios.</p>
-  </footer>
+  <!-- ══ MODAIS ══ -->
 
-  <!-- Modal de interrogatório -->
-  <div id="interrogation-modal" class="modal-overlay" hidden role="dialog" aria-modal="true" aria-labelledby="interrogation-title">
+  <!-- Modal do Diagrama ER -->
+  <div id="er-modal" class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="er-modal-title" aria-describedby="er-description" hidden>
+    <div class="modal-dialog">
+      <div class="modal-header-bar">
+        <h3 id="er-modal-title">DIAGRAMA ER · CASO #001</h3>
+        <button id="btn-er-close" type="button" class="btn btn-secondary" style="font-size: 10px; padding: 5px 9px;">FECHAR ✕</button>
+      </div>
+      <div class="modal-body">
+        <p id="er-description" class="sr-only">Tabelas, colunas e relações do banco de dados.</p>
+        <div id="er-diagram-content" class="er-diagram-container"></div>
+        <div class="er-legend">
+          <span class="er-legend-item"><span class="er-legend-dot pk"></span> CHAVE PRIMÁRIA (PK)</span>
+          <span class="er-legend-item"><span class="er-legend-dot fk"></span> CHAVE ESTRANGEIRA (FK)</span>
+          <span class="er-legend-item"><span class="er-legend-dot relation"></span> TABELA / RELAÇÃO</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal de Interrogatório -->
+  <div id="interrogation-modal" class="modal-overlay" hidden role="dialog" aria-modal="true" aria-labelledby="interrogation-title" aria-describedby="interrogation-statement">
     <div class="modal-dialog modal-interrogation">
-      <h3 id="interrogation-title">Interrogatório</h3>
-      <div id="interrogation-suspect-name" class="interrogation-suspect-name"></div>
-      <div id="interrogation-statement" class="interrogation-statement"></div>
-      <div id="interrogation-evidence-list" class="interrogation-evidence-list"></div>
-      <div id="interrogation-feedback" class="interrogation-feedback"></div>
-      <div class="modal-actions">
-        <button id="btn-interrogation-close" type="button" class="btn btn-secondary">Fechar</button>
+      <div class="modal-header-bar">
+        <h3 id="interrogation-title">SALA DE INTERROGATÓRIO · SESSÃO GRAVADA</h3>
+        <span class="pill-badge confidential">AO VIVO</span>
+      </div>
+      <div class="modal-body">
+        <div class="interrogation-suspect-profile">
+          <div id="interrogation-avatar" class="interrogation-avatar">CT</div>
+          <div>
+            <div id="interrogation-suspect-name" class="interrogation-suspect-name">Camila Torres</div>
+            <div id="interrogation-suspect-role" style="font-family: var(--font-mono); font-size: 10px; letter-spacing: .14em; color: var(--text-subdued); margin-top: 4px;">COORDENADORA DE TESOURARIA · ID 7</div>
+          </div>
+        </div>
+        <div id="interrogation-statement" class="interrogation-statement">“Não houve transferência irregular.”</div>
+        <div style="margin-top: 22px; font-family: var(--font-mono); font-size: 9px; font-weight: 700; letter-spacing: .18em; color: var(--text-subdued);">APRESENTAR EVIDÊNCIA</div>
+        <div id="interrogation-evidence-list" class="interrogation-evidence-list"></div>
+        <div id="interrogation-feedback" class="interrogation-feedback" style="margin-top: 14px;"></div>
+        <div class="modal-actions">
+          <button id="btn-interrogation-close" type="button" class="btn btn-secondary">ENCERRAR SESSÃO</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal de Conclusão -->
+  <div id="conclusion-modal" class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="conclusion-title" hidden>
+    <div class="modal-dialog modal-conclusion">
+      <div id="conclusion-stamp" class="conclusion-stamp">INQUÉRITO ARQUIVADO</div>
+      <div class="modal-header-bar" style="background: rgba(34, 197, 94, 0.05);">
+        <h3 id="conclusion-title" style="color: var(--status-success-light);">CASO #001 · ENCERRADO</h3>
+      </div>
+      <div class="modal-body">
+        <h2 id="conclusion-heading" style="font-family: var(--font-mono); font-size: 1.7rem; color: var(--text-primary);">Investigação Concluída</h2>
+        <div id="conclusion-body" style="margin-top: 16px; color: var(--text-muted); font-size: 0.875rem; line-height: 1.75;"></div>
+        <div class="modal-actions">
+          <button id="btn-conclusion-sandbox" type="button" class="btn btn-secondary">SANDBOX</button>
+          <button id="btn-conclusion-close" type="button" class="btn btn-primary">PRÓXIMO CASO →</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal de Confirmação: Reiniciar Progresso -->
+  <div id="reset-modal" class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="reset-modal-title" aria-describedby="reset-modal-description" hidden>
+    <div class="modal-dialog" style="max-width: 480px;">
+      <div class="modal-header-bar" style="background: var(--status-danger-bg);">
+        <h3 id="reset-modal-title" style="color: var(--status-danger-light);">REINICIAR PROGRESSO?</h3>
+      </div>
+      <div class="modal-body">
+        <p id="reset-modal-description" style="color: var(--text-muted); font-size: 0.875rem; line-height: 1.6;">Todo o seu progresso (estrelas, pontuação e evidências) deste caso será apagado. Os demais cenários serão preservados. Esta ação não pode ser desfeita.</p>
+        <div class="modal-actions">
+          <button id="btn-reset-cancel" type="button" class="btn btn-secondary">CANCELAR</button>
+          <button id="btn-reset-confirm" type="button" class="btn btn-danger">SIM, REINICIAR</button>
+        </div>
       </div>
     </div>
   </div>
 
   <script type="module" src="src/app.js"></script>
-
-  <!-- Modal de conclusão do MVP -->
-  <div id="conclusion-modal" class="modal-overlay" hidden>
-    <div class="modal-dialog modal-conclusion">
-      <h3 id="conclusion-title">Cenário concluído</h3>
-      <div id="conclusion-body"></div>
-      <div class="modal-actions">
-        <button id="btn-conclusion-close" type="button" class="btn btn-primary">Continuar</button>
-      </div>
-    </div>
-  </div>
-
-  <!-- Modal de confirmação: reiniciar progresso -->
-  <div id="reset-modal" class="modal-overlay" hidden>
-    <div class="modal-dialog">
-      <h3>Reiniciar progresso?</h3>
-      <p>Todo o seu progresso (estrelas, pontuação e evidências) será apagado. Esta ação não pode ser desfeita.</p>
-      <div class="modal-actions">
-        <button id="btn-reset-cancel" type="button" class="btn btn-secondary">Cancelar</button>
-        <button id="btn-reset-confirm" type="button" class="btn btn-danger">Sim, reiniciar</button>
-      </div>
-    </div>
-  </div>
-
-  <!-- Modal do diagrama ER -->
-  <div id="er-modal" class="modal-overlay" hidden>
-    <div class="modal-dialog" style="max-width: 720px;">
-      <h3>Diagrama ER</h3>
-      <p id="er-description">Tabelas, colunas e relações do banco de dados do cenário atual.</p>
-      <div id="er-diagram-content" class="er-diagram-container"></div>
-      <div class="er-legend">
-        <span class="er-legend-item"><span class="er-legend-dot pk"></span> Chave primária (PK)</span>
-        <span class="er-legend-item"><span class="er-legend-dot fk"></span> Chave estrangeira (FK)</span>
-        <span class="er-legend-item"><span class="er-legend-dot relation"></span> Relação</span>
-      </div>
-      <div class="modal-actions">
-        <button id="btn-er-close" type="button" class="btn btn-primary">Fechar</button>
-      </div>
-    </div>
-  </div>
 </body>
 </html>

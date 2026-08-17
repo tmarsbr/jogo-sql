@@ -5,7 +5,7 @@
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
-    "test": "node test/test_db.js && node test/test_executor.js && node test/test_validator.js && node test/test_scoring.js && node test/test_storage.js && node test/test_levels_advanced.js && node test/test_course_content.js && node test/test_cases.js && node test/test_case_manager.js && node test/test_ai_hints.js && node test/test_server.js && node test/test_timeline.js && node test/test_suspect_meter.js && node test/test_suspect_graph.js && node test/test_sfx.js && node test/test_interrogation.js && node test/test_app_integration.js"
+    "test": "node test/test_db.js && node test/test_executor.js && node test/test_validator.js && node test/test_scoring.js && node test/test_storage.js && node test/test_levels_advanced.js && node test/test_course_content.js && node test/test_lesson.js && node test/test_lesson_queries.js && node test/test_cases.js && node test/test_case_manager.js && node test/test_ai_hints.js && node test/test_server.js && node test/test_timeline.js && node test/test_suspect_meter.js && node test/test_suspect_graph.js && node test/test_sfx.js && node test/test_interrogation.js && node test/test_ui.js && node test/test_app_integration.js"
   },
   "keywords": [],
   "author": "Tiago Silva",

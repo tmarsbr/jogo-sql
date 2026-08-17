@@ -22,6 +22,7 @@ const {
   loadStorage,
   loadLevels,
   loadCourseContent,
+  loadLesson,
 } = require('./helpers/load-source');
 
 let passed = 0, failed = 0;
@@ -66,8 +67,11 @@ function createMockDocument() {
         textContent: '',
         innerHTML: '',
         disabled: false,
+        tabIndex: 0,
         style: {},
         focus: () => {},
+        setAttribute: (name, value) => { el[name] = String(value); },
+        removeAttribute: (name) => { delete el[name]; },
         addEventListener: (type, fn) => { listeners.push({ el: id, type, fn }); },
         querySelectorAll: () => [],
       };
@@ -98,6 +102,7 @@ function createMockDocument() {
     createElement: (tag) => ({ tag, hidden: false, addEventListener: () => {} }),
     head: { appendChild: () => {} },
     body: { appendChild: () => {} },
+    activeElement: null,
   };
   return { document, elements, listeners };
 }
@@ -115,6 +120,9 @@ function createMockUI(document, elements) {
     renderHints: [],
     renderFromState: [],
     showConclusionModal: [],
+    setLesson: [],
+    activateSidebarTab: [],
+    activatePanel: [],
   };
 
   const ui = {
@@ -138,9 +146,11 @@ function createMockUI(document, elements) {
     setProgress: () => {},
     setHints: () => {},
     setEvidence: () => {},
+    setLesson: (html) => { calls.setLesson.push(html); },
     showTabs: () => {},
+    hideTabs: () => {},
     initTabs: () => {},
-    activatePanel: () => {},
+    activatePanel: (name) => { calls.activatePanel.push(name); },
     renderFromState: () => { calls.renderFromState.push(true); },
     renderMission: (...args) => { calls.renderMission.push(args); },
     renderFeedback: () => {},
@@ -181,6 +191,15 @@ function createMockUI(document, elements) {
       const btn = document.getElementById('btn-start-interrogation');
       btn.hidden = !visible;
     },
+    initSidebarTabs: () => {},
+    activateSidebarTab: (name) => { calls.activateSidebarTab.push(name); },
+    configureSidebarTabs: () => {},
+    updateLessonTabBadge: () => {},
+    initLobbyTabs: () => {},
+    activateLobbyTab: () => {},
+    renderMissionRail: () => {},
+    setHeaderCaseInfo: () => {},
+    renderHeaderProgress: () => {},
     escapeHtml: (s) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'),
   };
 
@@ -225,6 +244,7 @@ function loadAppWithMocks() {
   const storage = loadStorage(localStorage);
   const levels = loadLevels();
   const courseContent = loadCourseContent();
+  const lesson = loadLesson();
   const timeline = evalModule(transformESM(readSource('timeline.js')), {}, 'timeline.js');
   const suspectMeter = evalModule(transformESM(readSource('suspect-meter.js')), {}, 'suspect-meter.js');
   const interrogation = evalModule(transformESM(readSource('interrogation.js')), {}, 'interrogation.js');
@@ -345,6 +365,7 @@ function loadAppWithMocks() {
     loadState: storage.loadState,
     clearState: storage.clearState,
     ...ui,
+    renderLessonHtml: lesson.renderLessonHtml,
     renderERDiagram: erDiagram.renderERDiagram,
     getCourseContentByLevel: courseContent.getCourseContentByLevel,
     getCourseContentById: courseContent.getCourseContentById,
@@ -411,7 +432,7 @@ function removeImportStatements(code) {
 // Testes
 // ====================================================================
 
-console.log('\n[1] persistState salva timelineOrder, timelineBonusAwarded, bonusPoints e interrogation');
+console.log('\n[1] persistState salva gameplay e aulas lidas');
 {
   const { app, state, localStorage, storage } = loadAppWithMocks();
   state.currentCase = 'case001';
@@ -420,6 +441,7 @@ console.log('\n[1] persistState salva timelineOrder, timelineBonusAwarded, bonus
   state.timelineBonusAwarded = true;
   state.bonusPoints = 200;
   state.interrogation = { status: 'active', stepIndex: 1, presentedEvidenceIds: ['ev1'] };
+  state.lessonsRead = ['sql-intro'];
 
   app.persistState();
 
@@ -432,9 +454,10 @@ console.log('\n[1] persistState salva timelineOrder, timelineBonusAwarded, bonus
   assert(p.timelineBonusAwarded === true, 'timelineBonusAwarded preservado');
   assert(p.bonusPoints === 200, 'bonusPoints preservado');
   assert(p.interrogation.status === 'active' && p.interrogation.stepIndex === 1, 'interrogation preservado');
+  assert(p.lessonsRead.length === 1 && p.lessonsRead[0] === 'sql-intro', 'lessonsRead preservado');
 }
 
-console.log('\n[2] restoreProgress restaura progresso ativo incluindo gameplay fields');
+console.log('\n[2] restoreProgress restaura gameplay e aulas lidas');
 {
   const { app, state, localStorage } = loadAppWithMocks();
   localStorage.setItem('sql_detective_v2', JSON.stringify({
@@ -444,6 +467,7 @@ console.log('\n[2] restoreProgress restaura progresso ativo incluindo gameplay f
         currentLevel: 5, completedLevels: [1, 2, 3], levelProgress: {}, score: 300, evidence: [],
         timelineOrder: ['transfer-501'], timelineBonusAwarded: true, bonusPoints: 200,
         interrogation: { status: 'won', stepIndex: 3, presentedEvidenceIds: ['a', 'b'] },
+        lessonsRead: ['sql-intro'],
       },
     },
   }));
@@ -453,6 +477,7 @@ console.log('\n[2] restoreProgress restaura progresso ativo incluindo gameplay f
   assert(state.timelineBonusAwarded === true, 'timelineBonusAwarded ativo restaurado');
   assert(state.bonusPoints === 200, 'bonusPoints ativo restaurado');
   assert(state.interrogation.status === 'won', 'interrogation ativo restaurado');
+  assert(state.lessonsRead.length === 1 && state.lessonsRead[0] === 'sql-intro', 'lessonsRead ativo restaurado');
 }
 
 console.log('\n[3] loadMission oculta timeline, suspeitos e interrogatório para casos sem GAMEPLAY');
@@ -621,9 +646,9 @@ let projectFlow;
   const { app, state, elements, calls } = loadAppWithMocks();
   app.selectCase('proj-ecommerce');
   assert(state.currentCase === 'proj-ecommerce', 'seletor ativa um projeto real');
-  assert(elements.get('btn-start').textContent === 'Iniciar projeto', 'CTA inicial e adaptado ao projeto');
-  assert(elements.get('briefing-panel-title').textContent === 'Projeto', 'painel identifica o cenario como projeto');
-  assert(elements.get('editor-panel-title').textContent === 'Análise SQL', 'editor usa rotulo analitico');
+  assert(elements.get('btn-start').textContent === 'INICIAR PROJETO →', 'CTA inicial e adaptado ao projeto');
+  assert(elements.get('briefing-panel-title').textContent === 'PROJETO', 'painel identifica o cenario como projeto');
+  assert(elements.get('editor-panel-title').textContent === 'ANÁLISE SQL', 'editor usa rotulo analitico');
 
   const shown = app.showDatabaseAnalysis();
   assert(shown === true, 'Etapa 0 do projeto e exibida');
@@ -641,6 +666,85 @@ let projectFlow;
     await app.startGame();
     assert(state.currentLevel === 1, 'missao salva fora do intervalo volta para a primeira pendente');
   });
+}
+
+console.log('\n[10] Reset limpa somente o cenário ativo');
+{
+  const { app, state, localStorage } = loadAppWithMocks();
+  state.currentCase = 'proj-ecommerce';
+  state.progressByCase = {
+    case001: {
+      currentLevel: 4, completedLevels: [1, 2, 3], levelProgress: { 1: { stars: 3, hintsUsed: 0 } },
+      score: 300, evidence: ['evidência preservada'], timelineOrder: [], timelineBonusAwarded: false,
+      bonusPoints: 0, interrogation: { status: 'locked', stepIndex: 0, presentedEvidenceIds: [] },
+    },
+    'proj-ecommerce': {
+      currentLevel: 3, completedLevels: [1, 2], levelProgress: { 1: { stars: 2, hintsUsed: 1 } },
+      score: 200, evidence: ['evidência removida'], timelineOrder: [], timelineBonusAwarded: false,
+      bonusPoints: 0, interrogation: { status: 'locked', stepIndex: 0, presentedEvidenceIds: [] },
+    },
+  };
+  state.currentLevel = 3;
+  state.completedLevels = [1, 2];
+  state.levelProgress = { 1: { stars: 2, hintsUsed: 1 } };
+  state.score = 200;
+  state.evidence = ['evidência removida'];
+
+  const resetCaseId = app.resetActiveCaseProgress();
+  const saved = JSON.parse(localStorage.getItem('sql_detective_v2'));
+
+  assert(resetCaseId === 'proj-ecommerce' && state.currentCase === 'proj-ecommerce', 'reset mantém o cenário ativo');
+  assert(state.completedLevels.length === 0 && state.score === 0 && state.evidence.length === 0, 'progresso ativo é zerado');
+  assert(saved.progressByCase.case001.score === 300, 'progresso de outro cenário é preservado');
+  assert(saved.progressByCase['proj-ecommerce'].completedLevels.length === 0, 'save persiste somente o cenário ativo zerado');
+}
+
+console.log('\n[11] Card de revisão abre a aula completa sem trocar de missão');
+{
+  const { app, state, calls } = loadAppWithMocks();
+  state.currentCase = 'case001';
+  state.currentLevel = 6;
+  state.lessonsRead = [];
+
+  const opened = app.showCourseLesson('joins-inner-left');
+  const rendered = calls.setLesson[calls.setLesson.length - 1] || '';
+  assert(opened === true, 'courseRef secundário é encontrado');
+  assert(rendered.includes('Conectando entidades'), 'a revisão vira a aula principal renderizada');
+  assert(calls.activateSidebarTab.includes('lesson'), 'aba AULA é ativada');
+  assert(calls.activatePanel.includes('sidebar'), 'painel externo é ativado para mobile');
+}
+
+console.log('\n[12] Aula lida não é forçada novamente em missão incompleta');
+{
+  const { app, state, calls } = loadAppWithMocks();
+  state.currentCase = 'case001';
+  state.completedLevels = [];
+  state.lessonsRead = ['dml-select-where'];
+  const before = calls.activateSidebarTab.length;
+  app.loadMission(2);
+  assert(calls.activateSidebarTab.length === before, 'retorno à missão preserva a aba escolhida quando a aula já foi lida');
+
+  state.lessonsRead = [];
+  app.loadMission(2);
+  assert(calls.activateSidebarTab[calls.activateSidebarTab.length - 1] === 'lesson', 'missão com aula não lida abre em AULA');
+}
+
+console.log('\n[13] Fim da rolagem marca e persiste a aula atual');
+{
+  const { state, elements, listeners, localStorage } = loadAppWithMocks();
+  state.currentCase = 'case001';
+  state.currentLevel = 1;
+  state.lessonsRead = [];
+  const pane = elements.get('sidebar-pane-lesson');
+  pane.scrollTop = 900;
+  pane.clientHeight = 100;
+  pane.scrollHeight = 1000;
+  const onScroll = listeners.find(listener => listener.el === 'sidebar-pane-lesson' && listener.type === 'scroll');
+  assert(Boolean(onScroll), 'listener observa o pane que realmente rola');
+  onScroll.fn();
+  const saved = JSON.parse(localStorage.getItem('sql_detective_v2'));
+  assert(state.lessonsRead.includes('sql-intro'), 'aula atual é marcada como lida');
+  assert(saved.progressByCase.case001.lessonsRead.includes('sql-intro'), 'leitura permanece no estado salvo');
 }
 
 // ====================================================================

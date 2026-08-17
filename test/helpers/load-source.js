@@ -241,6 +241,16 @@ function loadSeedData() {
   };
 }
 
+/**
+ * Carrega o lesson.js real do src/.
+ * @returns {object}
+ */
+function loadLesson() {
+  const code = readSource('lesson.js');
+  const transformed = transformESM(code);
+  return evalModule(transformed, {}, 'lesson.js');
+}
+
 module.exports = {
   readSource,
   transformESM,
@@ -251,5 +261,6 @@ module.exports = {
   loadStorage,
   loadLevels,
   loadCourseContent,
+  loadLesson,
   loadSeedData,
 };

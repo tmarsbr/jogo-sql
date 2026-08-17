@@ -190,6 +190,45 @@ for (const level of levels.LEVELS) {
 }
 console.log();
 
+// --- Teste 13: Itens com lesson têm a anatomia completa ---
+console.log('13. Anatomia das aulas (campo lesson):');
+const LESSON_FIELDS = ['eyebrow', 'headline', 'readingMinutes', 'why', 'howItWorks', 'mentalModel', 'walkthrough', 'classicError', 'checkpoint', 'bridge'];
+for (const item of course.COURSE_CONTENT) {
+  if (!item.lesson) continue;
+  for (const f of LESSON_FIELDS) {
+    assert(item.lesson[f] !== undefined, `Aula "${item.id}" tem lesson.${f}`);
+  }
+  assert(Array.isArray(item.lesson.howItWorks) && item.lesson.howItWorks.length >= 2,
+    `Aula "${item.id}" tem ao menos 2 parágrafos em howItWorks`);
+  assert(item.lesson.howItWorks.length <= 3,
+    `Aula "${item.id}" tem no máximo 3 parágrafos em howItWorks`);
+
+  const lines = item.lesson.walkthrough.code.split('\n').length;
+  const annotations = item.lesson.walkthrough.annotations;
+  assert(Array.isArray(annotations) && annotations.length >= 3 && annotations.length <= 5,
+    `Aula "${item.id}" tem de 3 a 5 anotações no walkthrough`);
+  assert(new Set(annotations.map(annotation => annotation.line)).size === annotations.length,
+    `Aula "${item.id}" não repete marcadores na mesma linha`);
+  for (const a of annotations) {
+    assert(a.line >= 1 && a.line <= lines,
+      `Aula "${item.id}" anotação aponta para linha válida (${a.line} de ${lines})`);
+  }
+  assert(item.lesson.classicError.errorMessage.length > 20,
+    `Aula "${item.id}" tem mensagem de erro real, não um resumo`);
+  assert(item.lesson.readingMinutes >= 2 && item.lesson.readingMinutes <= 6,
+    `Aula "${item.id}" tem tempo de leitura plausível`);
+}
+console.log();
+
+// --- Teste 14: Cobertura — toda missão tem aula completa no courseRef principal ---
+console.log('14. Cobertura de aulas nas missões:');
+for (const level of levels.LEVELS) {
+  const primary = course.getCourseContentById(level.courseRefs[0]);
+  assert(primary && primary.lesson,
+    `Missão ${level.id} tem aula completa no courseRef principal ("${level.courseRefs[0]}")`);
+}
+console.log();
+
 // --- Resumo ---
 console.log('=== Resumo ===');
 console.log(`Passou: ${passed}`);

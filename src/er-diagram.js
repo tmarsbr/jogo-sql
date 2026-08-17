@@ -209,7 +209,7 @@ export function generateERDiagramSVG() {
   const svgWidth = maxX + PADDING;
   const svgHeight = maxY + PADDING;
 
-  let svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${svgWidth}" height="${svgHeight}" viewBox="0 0 ${svgWidth} ${svgHeight}" style="max-width: 100%; height: auto;">`;
+  let svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${svgWidth}" height="${svgHeight}" viewBox="0 0 ${svgWidth} ${svgHeight}" role="img" aria-label="Diagrama de entidades e relacionamentos" style="max-width: none; height: auto;">`;
 
   // --- Desenha relações primeiro (fica atrás das tabelas) ---
   for (const rel of RELATIONS) {
@@ -316,7 +316,7 @@ function generateActiveCaseERDiagramSVG() {
   });
   const svgWidth = PADDING * 2 + Math.min(columns, tables.length) * TABLE_WIDTH + Math.max(0, Math.min(columns, tables.length) - 1) * TABLE_GAP_X;
   const svgHeight = y - TABLE_GAP_Y + PADDING;
-  let svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${svgWidth}" height="${svgHeight}" viewBox="0 0 ${svgWidth} ${svgHeight}" style="max-width: 100%; height: auto;">`;
+  let svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${svgWidth}" height="${svgHeight}" viewBox="0 0 ${svgWidth} ${svgHeight}" role="img" aria-label="Diagrama de entidades e relacionamentos" style="max-width: none; height: auto;">`;
   tables.forEach(table => table.columns.filter(column => column.fk).forEach(column => {
     const [targetName] = column.fk.split('.');
     const from = layout[table.tableName]; const target = layout[targetName];

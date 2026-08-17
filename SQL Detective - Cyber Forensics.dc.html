@@ -1,0 +1,910 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700;800&display=swap" rel="stylesheet" />
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+body{font-family:"Inter",system-ui,-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;background:#090D16;color:#DCE6F2;line-height:1.5;-webkit-font-smoothing:antialiased}
+a{color:#00F0FF;text-decoration:none}
+a:hover{color:#7DF7FF}
+button{font-family:inherit}
+::-webkit-scrollbar{width:8px;height:8px}
+::-webkit-scrollbar-track{background:#070A11}
+::-webkit-scrollbar-thumb{background:#1B2740;border-radius:9999px}
+::-webkit-scrollbar-thumb:hover{background:#2D4166}
+@keyframes scan{0%{transform:translateY(0);opacity:0}12%{opacity:.9}100%{transform:translateY(var(--scan-h,220px));opacity:0}}
+@keyframes blip{0%,100%{opacity:.35}50%{opacity:1}}
+@keyframes rise{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
+</style>
+</helmet>
+
+<div style="min-height:100vh;background-image:linear-gradient(rgba(0,240,255,.032) 1px,transparent 1px),linear-gradient(90deg,rgba(0,240,255,.032) 1px,transparent 1px),radial-gradient(ellipse at 15% -10%,rgba(0,240,255,.10),transparent 55%),radial-gradient(ellipse at 90% 105%,rgba(139,92,246,.10),transparent 55%);background-size:48px 48px,48px 48px,auto,auto;background-color:#090D16">
+
+<div style="position:sticky;top:0;z-index:5000;display:flex;align-items:center;gap:8px;padding:7px 14px;background:rgba(7,10,17,.92);backdrop-filter:blur(8px);border-bottom:1px solid #16223A;flex-wrap:wrap">
+  <span style="font:700 9.5px 'JetBrains Mono',monospace;letter-spacing:.2em;color:#5A6E8C">DIREÇÃO 1 · CYBER FORENSICS</span>
+  <sc-for list="{{ screens }}" as="s" hint-placeholder-count="4">
+    <button type="button" onClick="{{ s.go }}" style="font:600 10px 'JetBrains Mono',monospace;letter-spacing:.1em;padding:5px 11px;border-radius:2px;border:1px solid {{ s.border }};background:{{ s.bg }};color:{{ s.fg }};cursor:pointer">{{ s.label }}</button>
+  </sc-for>
+</div>
+
+<!-- ══ LOBBY ══ -->
+<sc-if value="{{ isLobby }}" hint-placeholder-val="{{ true }}">
+<div style="padding:56px 32px 80px">
+  <div style="max-width:1180px;margin:0 auto">
+    <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:24px;flex-wrap:wrap;padding-bottom:28px;border-bottom:1px solid #16223A">
+      <div>
+        <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px">
+          <span style="width:7px;height:7px;background:#00F0FF;box-shadow:0 0 10px #00F0FF;animation:blip 2.4s ease-in-out infinite"></span>
+          <span style="font:700 10px 'JetBrains Mono',monospace;letter-spacing:.26em;color:#00F0FF">ARQUIVO CENTRAL · TERMINAL ONLINE</span>
+        </div>
+        <h1 style="font:800 clamp(2.4rem,5vw,3.6rem)/1 'JetBrains Mono',monospace;letter-spacing:-.03em;color:#F2F7FF">SQL DETECTIVE</h1>
+        <p style="color:#7D90AD;max-width:520px;margin-top:14px;font-size:.9375rem">Escolha uma investigação policial ou um projeto de análise de dados de negócios.</p>
+      </div>
+      <div style="display:flex;gap:10px">
+        <sc-for list="{{ lobbyStats }}" as="k" hint-placeholder-count="3">
+          <div style="min-width:96px;padding:12px 14px;border:1px solid #16223A;background:rgba(13,19,32,.6)">
+            <div style="font:800 1.5rem 'JetBrains Mono',monospace;color:{{ k.color }};line-height:1">{{ k.value }}</div>
+            <div style="font:600 9px 'JetBrains Mono',monospace;letter-spacing:.16em;color:#5A6E8C;margin-top:6px">{{ k.label }}</div>
+          </div>
+        </sc-for>
+      </div>
+    </div>
+
+    <div style="display:flex;gap:2px;margin:28px 0 22px;border:1px solid #16223A;padding:2px;width:max-content;background:rgba(13,19,32,.6)">
+      <sc-for list="{{ lobbyTabs }}" as="t" hint-placeholder-count="2">
+        <button type="button" onClick="{{ t.go }}" style="font:700 10px 'JetBrains Mono',monospace;letter-spacing:.16em;padding:9px 18px;border:0;background:{{ t.bg }};color:{{ t.fg }};cursor:pointer">{{ t.label }}</button>
+      </sc-for>
+    </div>
+
+    <sc-if value="{{ lobbyInvestigations }}" hint-placeholder-val="{{ true }}">
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(268px,1fr));gap:14px">
+      <sc-for list="{{ investigations }}" as="c" hint-placeholder-count="4">
+        <button type="button" onClick="{{ c.open }}" style="position:relative;display:flex;flex-direction:column;align-items:flex-start;gap:12px;min-height:262px;padding:20px;border:1px solid {{ c.border }};background:{{ c.bg }};color:#DCE6F2;text-align:left;cursor:{{ c.cursor }};overflow:hidden" style-hover="border-color:#00F0FF;box-shadow:0 0 0 1px rgba(0,240,255,.25),0 14px 40px rgba(0,240,255,.10)">
+          <div style="position:absolute;top:0;left:0;right:0;height:2px;background:{{ c.stripe }}"></div>
+          <div style="display:flex;align-items:center;justify-content:space-between;width:100%;gap:8px">
+            <span style="font:700 10px 'JetBrains Mono',monospace;letter-spacing:.16em;color:{{ c.numColor }}">{{ c.tag }}</span>
+            <span style="font:700 8.5px 'JetBrains Mono',monospace;letter-spacing:.18em;padding:3px 7px;border:1px solid {{ c.badgeBorder }};color:{{ c.badgeFg }};background:{{ c.badgeBg }}">{{ c.badge }}</span>
+          </div>
+          <span style="font-size:1.9rem;filter:{{ c.iconFilter }}">{{ c.icon }}</span>
+          <strong style="font:700 1.05rem/1.3 Inter;color:{{ c.titleColor }};filter:{{ c.blur }}">{{ c.title }}</strong>
+          <span style="color:#7D90AD;font-size:.8125rem;line-height:1.5;filter:{{ c.blur }}">{{ c.description }}</span>
+          <div style="margin-top:auto;width:100%;display:flex;align-items:center;justify-content:space-between;gap:8px;padding-top:12px;border-top:1px solid rgba(0,240,255,.10)">
+            <span style="font:600 9.5px 'JetBrains Mono',monospace;letter-spacing:.14em;color:#5A6E8C">{{ c.category }}</span>
+            <span style="font:700 10px 'JetBrains Mono',monospace;letter-spacing:.12em;color:{{ c.actionColor }}">{{ c.action }}</span>
+          </div>
+        </button>
+      </sc-for>
+    </div>
+    </sc-if>
+
+    <sc-if value="{{ lobbyProjects }}" hint-placeholder-val="{{ false }}">
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(232px,1fr));gap:12px">
+      <sc-for list="{{ projects }}" as="p" hint-placeholder-count="12">
+        <button type="button" style="position:relative;display:flex;flex-direction:column;align-items:flex-start;gap:9px;min-height:172px;padding:16px;border:1px solid #17243C;background:rgba(11,17,29,.72);color:#DCE6F2;text-align:left;cursor:pointer" style-hover="border-color:#8B5CF6;box-shadow:0 0 0 1px rgba(139,92,246,.25)">
+          <div style="display:flex;align-items:center;gap:9px;width:100%">
+            <span style="font-size:1.15rem">{{ p.icon }}</span>
+            <span style="font:700 9.5px 'JetBrains Mono',monospace;letter-spacing:.16em;color:#8B5CF6">{{ p.tag }}</span>
+          </div>
+          <strong style="font:600 .9375rem/1.3 Inter">{{ p.title }}</strong>
+          <span style="color:#7D90AD;font-size:.75rem;line-height:1.45">{{ p.description }}</span>
+          <span style="margin-top:auto;font:600 9px 'JetBrains Mono',monospace;letter-spacing:.14em;color:#5A6E8C">{{ p.category }}</span>
+        </button>
+      </sc-for>
+    </div>
+    </sc-if>
+  </div>
+</div>
+</sc-if>
+
+<!-- ══ DOSSIÊ (intro) ══ -->
+<sc-if value="{{ isDossier }}" hint-placeholder-val="{{ false }}">
+<div style="min-height:calc(100vh - 36px);display:flex;align-items:center;justify-content:center;padding:56px 24px">
+  <div style="position:relative;width:min(880px,100%);border:1px solid #1B2A47;background:rgba(11,17,29,.86);backdrop-filter:blur(14px);box-shadow:0 30px 80px rgba(0,0,0,.6);overflow:hidden;animation:rise .4s ease-out">
+    <div style="position:absolute;top:0;left:0;right:0;height:1px;background:linear-gradient(90deg,transparent,#00F0FF,transparent);animation:scan 5s linear infinite;--scan-h:420px"></div>
+    <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;padding:16px 28px;border-bottom:1px solid #16223A;background:rgba(0,240,255,.04);flex-wrap:wrap">
+      <span style="font:700 10px 'JetBrains Mono',monospace;letter-spacing:.22em;color:#00F0FF">CASO #001 · DEPARTAMENTO FINANCEIRO</span>
+      <span style="font:700 9.5px 'JetBrains Mono',monospace;letter-spacing:.2em;padding:4px 9px;border:1px solid rgba(239,68,68,.45);color:#FF6B7F;background:rgba(239,68,68,.09)">🚨 CONFIDENCIAL</span>
+    </div>
+    <div style="padding:38px 28px 30px;display:grid;grid-template-columns:1fr 250px;gap:34px">
+      <div>
+        <h1 style="font:800 2.5rem/1.05 'JetBrains Mono',monospace;letter-spacing:-.03em;color:#F2F7FF">O Mistério das Transações Fantasmas</h1>
+        <p style="margin-top:22px;color:#93A6C2;line-height:1.75;font-size:.9375rem;max-width:56ch">Uma auditoria interna detectou transações bancárias suspeitas na empresa TechFin. Valores altos foram movimentados para uma conta externa misteriosa, fora do horário normal de trabalho. Você é o(a) detective(a) responsável por investigar o banco de dados e descobrir o que aconteceu. Use suas habilidades de SQL para interrogar o banco e reunir evidências.</p>
+        <div style="margin-top:26px;display:flex;gap:12px;flex-wrap:wrap">
+          <button type="button" onClick="{{ goAnalysis }}" style="font:700 12px 'JetBrains Mono',monospace;letter-spacing:.14em;padding:14px 26px;border:1px solid #00F0FF;background:#00F0FF;color:#050810;cursor:pointer" style-hover="box-shadow:0 0 24px rgba(0,240,255,.45)">ABRIR INQUÉRITO →</button>
+          <button type="button" onClick="{{ goLobby }}" style="font:600 12px 'JetBrains Mono',monospace;letter-spacing:.14em;padding:14px 22px;border:1px solid #1B2A47;background:transparent;color:#93A6C2;cursor:pointer">VOLTAR AO ARQUIVO</button>
+        </div>
+      </div>
+      <div style="border-left:1px solid #16223A;padding-left:26px;display:flex;flex-direction:column;gap:20px">
+        <sc-for list="{{ dossierMeta }}" as="m" hint-placeholder-count="4">
+          <div>
+            <div style="font:600 9px 'JetBrains Mono',monospace;letter-spacing:.18em;color:#5A6E8C">{{ m.label }}</div>
+            <div style="margin-top:6px;font:700 .875rem 'JetBrains Mono',monospace;color:{{ m.color }}">{{ m.value }}</div>
+          </div>
+        </sc-for>
+      </div>
+    </div>
+    <div style="padding:14px 28px;border-top:1px solid #16223A;background:rgba(0,240,255,.03);font:600 10px 'JetBrains Mono',monospace;letter-spacing:.14em;color:#5A6E8C">RESOLVA AS 12 MISSÕES PARA CONCLUIR A INVESTIGAÇÃO</div>
+  </div>
+</div>
+</sc-if>
+
+<!-- ══ ETAPA 0 ══ -->
+<sc-if value="{{ isAnalysis }}" hint-placeholder-val="{{ false }}">
+<div style="padding:52px 32px 80px">
+  <div style="max-width:1080px;margin:0 auto">
+    <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+      <span style="font:700 10px 'JetBrains Mono',monospace;letter-spacing:.22em;color:#00F0FF">ETAPA 0 · ANÁLISE DO BANCO</span>
+      <span style="height:1px;flex:1;min-width:40px;background:linear-gradient(90deg,rgba(0,240,255,.4),transparent)"></span>
+    </div>
+    <h1 style="margin-top:16px;max-width:760px;font:700 clamp(1.7rem,3.6vw,2.5rem)/1.15 'JetBrains Mono',monospace;color:#F2F7FF">Evidências separadas, identidades conectadas</h1>
+    <p style="max-width:820px;margin-top:18px;color:#7D90AD;font-size:1rem;line-height:1.7">O banco do Caso 001 foi normalizado para que cada fato seja armazenado uma única vez. Funcionários, transações, acessos e e-mails têm responsabilidades diferentes; chaves estrangeiras preservam os relacionamentos sem repetir nomes, cargos ou departamentos em cada ocorrência.</p>
+
+    <h2 style="margin-top:44px;font:700 .75rem 'JetBrains Mono',monospace;letter-spacing:.18em;color:#00F0FF;text-transform:uppercase">Mapa de entidades</h2>
+    <div style="margin-top:16px;display:grid;grid-template-columns:repeat(auto-fit,minmax(238px,1fr));gap:12px">
+      <sc-for list="{{ entities }}" as="e" hint-placeholder-count="5">
+        <article style="position:relative;border:1px solid #17243C;background:rgba(11,17,29,.72);padding:18px;overflow:hidden">
+          <div style="display:flex;align-items:center;justify-content:space-between;gap:8px">
+            <h3 style="font:700 .9rem 'JetBrains Mono',monospace;color:#00F0FF">{{ e.name }}</h3>
+            <span style="font:700 8.5px 'JetBrains Mono',monospace;letter-spacing:.16em;padding:3px 6px;border:1px solid {{ e.badgeBorder }};color:{{ e.badgeFg }};background:{{ e.badgeBg }}">{{ e.badge }}</span>
+          </div>
+          <p style="margin-top:10px;color:#7D90AD;font-size:.8125rem;line-height:1.6">{{ e.role }}</p>
+          <div style="margin-top:12px;font:600 .72rem 'JetBrains Mono',monospace;color:#FBBF24">{{ e.key }}</div>
+          <ul style="margin-top:8px;padding-left:14px;color:#8B5CF6;font:500 .72rem/1.7 'JetBrains Mono',monospace">
+            <sc-for list="{{ e.relations }}" as="r" hint-placeholder-count="2">
+              <li style="overflow-wrap:anywhere">{{ r }}</li>
+            </sc-for>
+          </ul>
+        </article>
+      </sc-for>
+    </div>
+
+    <h2 style="margin-top:44px;font:700 .75rem 'JetBrains Mono',monospace;letter-spacing:.18em;color:#00F0FF;text-transform:uppercase">Decisões de design</h2>
+    <div style="margin-top:16px;display:grid;grid-template-columns:repeat(auto-fit,minmax(290px,1fr));gap:12px">
+      <sc-for list="{{ decisions }}" as="d" hint-placeholder-count="3">
+        <article style="border:1px solid #17243C;border-left:2px solid #8B5CF6;background:rgba(11,17,29,.72);padding:18px">
+          <h3 style="font:600 .9375rem Inter;color:#F2F7FF">{{ d.title }}</h3>
+          <p style="margin-top:8px;color:#7D90AD;font-size:.8125rem;line-height:1.6">{{ d.explanation }}</p>
+        </article>
+      </sc-for>
+    </div>
+
+    <h2 style="margin-top:44px;font:700 .75rem 'JetBrains Mono',monospace;letter-spacing:.18em;color:#00F0FF;text-transform:uppercase">Missões conceituais</h2>
+    <p style="margin-top:8px;color:#5A6E8C;font-size:.8125rem">Pense na resposta e abra cada cartão para conferir.</p>
+    <div style="margin-top:16px;display:grid;gap:8px">
+      <sc-for list="{{ checkpoints }}" as="c" hint-placeholder-count="3">
+        <details style="border:1px solid #17243C;background:rgba(11,17,29,.72)">
+          <summary style="cursor:pointer;padding:16px 18px;color:#DCE6F2;font-weight:600;font-size:.9375rem;list-style-position:inside">{{ c.label }}</summary>
+          <p style="padding:0 18px 18px;color:#7D90AD;font-size:.8125rem;line-height:1.65;border-top:1px solid #16223A;padding-top:14px">{{ c.answer }}</p>
+        </details>
+      </sc-for>
+    </div>
+
+    <div style="display:flex;justify-content:flex-end;margin-top:40px">
+      <button type="button" onClick="{{ goApp }}" style="font:700 12px 'JetBrains Mono',monospace;letter-spacing:.14em;padding:14px 26px;border:1px solid #00F0FF;background:#00F0FF;color:#050810;cursor:pointer">COMEÇAR MISSÕES SQL →</button>
+    </div>
+  </div>
+</div>
+</sc-if>
+
+<!-- ══ APP ══ -->
+<sc-if value="{{ isApp }}" hint-placeholder-val="{{ false }}">
+<div style="display:flex;flex-direction:column;height:calc(100vh - 36px);min-height:760px">
+  <header style="display:flex;align-items:center;gap:18px;padding:0 18px;height:58px;border-bottom:1px solid #16223A;background:rgba(7,10,17,.86);backdrop-filter:blur(10px);flex-shrink:0">
+    <div style="display:flex;align-items:center;gap:10px">
+      <span style="width:7px;height:7px;background:#00F0FF;box-shadow:0 0 10px #00F0FF;animation:blip 2.4s ease-in-out infinite"></span>
+      <span style="font:800 13px 'JetBrains Mono',monospace;letter-spacing:.04em;color:#F2F7FF">SQL DETECTIVE</span>
+      <span style="font:700 9.5px 'JetBrains Mono',monospace;letter-spacing:.16em;padding:4px 8px;border:1px solid rgba(0,240,255,.3);color:#00F0FF;background:rgba(0,240,255,.06)">CASO #001</span>
+      <span style="font:700 9px 'JetBrains Mono',monospace;letter-spacing:.18em;padding:4px 8px;border:1px solid rgba(239,68,68,.4);color:#FF6B7F;background:rgba(239,68,68,.08)">🚨 CONFIDENCIAL</span>
+    </div>
+    <div style="flex:1;display:flex;align-items:center;gap:10px;min-width:0">
+      <div style="flex:1;height:3px;background:#131E33;max-width:280px"><div style="height:100%;background:linear-gradient(90deg,#00F0FF,#8B5CF6);width:{{ progressPct }}"></div></div>
+      <span style="font:600 10px 'JetBrains Mono',monospace;letter-spacing:.1em;color:#5A6E8C">{{ progressLabel }}</span>
+    </div>
+    <div style="display:flex;align-items:center;gap:10px">
+      <span style="font:600 10px 'JetBrains Mono',monospace;letter-spacing:.1em;color:#22C55E">● BANCO PRONTO</span>
+      <span style="font:700 11px 'JetBrains Mono',monospace;color:#00F0FF">{{ score }} PTS</span>
+      <button type="button" style="width:32px;height:32px;border:1px solid #1B2A47;background:transparent;color:#93A6C2;cursor:pointer">🔊</button>
+      <button type="button" onClick="{{ goLobby }}" style="font:600 10px 'JetBrains Mono',monospace;letter-spacing:.12em;padding:8px 12px;border:1px solid #1B2A47;background:transparent;color:#93A6C2;cursor:pointer" style-hover="border-color:#00F0FF;color:#00F0FF">TROCAR CENÁRIO</button>
+    </div>
+  </header>
+
+  <div style="flex:1;display:grid;grid-template-columns:56px minmax(240px,328px) minmax(420px,1fr) minmax(280px,348px);min-height:0;overflow-x:auto">
+    <!-- rail de missões -->
+    <nav style="border-right:1px solid #16223A;background:rgba(7,10,17,.5);display:flex;flex-direction:column;align-items:center;gap:6px;padding:14px 0;overflow-y:auto">
+      <span style="font:700 8px 'JetBrains Mono',monospace;letter-spacing:.16em;color:#3F5170;writing-mode:vertical-rl;margin-bottom:6px">MISSÕES</span>
+      <sc-for list="{{ rail }}" as="m" hint-placeholder-count="12">
+        <button type="button" onClick="{{ m.go }}" title="{{ m.title }}" style="width:32px;height:32px;flex-shrink:0;display:flex;align-items:center;justify-content:center;font:700 11px 'JetBrains Mono',monospace;border:1px solid {{ m.border }};background:{{ m.bg }};color:{{ m.fg }};cursor:pointer">{{ m.label }}</button>
+      </sc-for>
+    </nav>
+
+    <!-- briefing -->
+    <section style="border-right:1px solid #16223A;display:flex;flex-direction:column;min-height:0;background:rgba(9,13,22,.5)">
+      <div style="padding:12px 18px;border-bottom:1px solid #16223A;display:flex;align-items:center;justify-content:space-between;gap:8px;flex-shrink:0">
+        <span style="font:700 10px 'JetBrains Mono',monospace;letter-spacing:.2em;color:#00F0FF">INQUÉRITO</span>
+        <span style="font:600 9px 'JetBrains Mono',monospace;letter-spacing:.14em;color:#5A6E8C">MISSÃO {{ missionNum }}/12</span>
+      </div>
+      <div style="padding:20px 18px;overflow-y:auto;flex:1">
+        <span style="display:inline-block;font:700 9px 'JetBrains Mono',monospace;letter-spacing:.16em;padding:4px 8px;border:1px solid rgba(139,92,246,.4);color:#A78BFA;background:rgba(139,92,246,.09)">{{ concept }}</span>
+        <h2 style="margin-top:14px;font:700 1.3rem/1.25 'JetBrains Mono',monospace;color:#F2F7FF">{{ missionTitle }}</h2>
+        <p style="margin-top:14px;color:#93A6C2;font-size:.875rem;line-height:1.7">{{ briefing }}</p>
+        <div style="margin-top:18px;border:1px solid rgba(0,240,255,.22);background:rgba(0,240,255,.05);padding:14px">
+          <div style="font:700 9px 'JetBrains Mono',monospace;letter-spacing:.18em;color:#00F0FF">OBJETIVO</div>
+          <p style="margin-top:8px;font-size:.8125rem;line-height:1.6;color:#DCE6F2">{{ objective }}</p>
+        </div>
+        <div style="margin-top:18px">
+          <div style="font:700 9px 'JetBrains Mono',monospace;letter-spacing:.18em;color:#5A6E8C">TABELAS EM ESCOPO</div>
+          <div style="margin-top:8px;display:flex;gap:6px;flex-wrap:wrap">
+            <sc-for list="{{ tables }}" as="t" hint-placeholder-count="2">
+              <code style="font:500 .72rem 'JetBrains Mono',monospace;padding:4px 8px;border:1px solid #1B2A47;background:rgba(19,30,51,.7);color:#DCE6F2">{{ t }}</code>
+            </sc-for>
+          </div>
+        </div>
+        <details style="margin-top:20px;border-top:1px solid #16223A;padding-top:14px">
+          <summary style="cursor:pointer;font:700 9px 'JetBrains Mono',monospace;letter-spacing:.18em;color:#5A6E8C">ESQUEMA DO BANCO</summary>
+          <div style="margin-top:10px;font:400 .72rem/1.8 'JetBrains Mono',monospace;white-space:pre-wrap;color:#7D90AD">funcionarios(id, nome, cargo, departamento_id)
+transacoes(id, valor_centavos, data_hora, conta_origem_id,
+           conta_destino_id, operador_funcionario_id)
+logs_acesso(id, funcionario_id, data_hora, sistema)
+emails(id, remetente_id, destinatario_id, assunto, conteudo)
+contas(id, titular, tipo, funcionario_id)</div>
+        </details>
+      </div>
+    </section>
+
+    <!-- console -->
+    <section style="display:flex;flex-direction:column;min-height:0;min-width:0">
+      <div style="padding:12px 20px;border-bottom:1px solid #16223A;display:flex;align-items:center;justify-content:space-between;gap:10px;flex-shrink:0;flex-wrap:wrap;overflow:hidden">
+        <span style="font:700 10px 'JetBrains Mono',monospace;letter-spacing:.2em;color:#00F0FF">CONSOLE FORENSE</span>
+        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+          <span style="font:500 9px 'JetBrains Mono',monospace;letter-spacing:.1em;color:#3F5170">CTRL+ENTER EXECUTA</span>
+          <button type="button" onClick="{{ openER }}" style="font:600 9.5px 'JetBrains Mono',monospace;letter-spacing:.12em;padding:7px 11px;border:1px solid rgba(139,92,246,.4);background:rgba(139,92,246,.08);color:#A78BFA;cursor:pointer">DIAGRAMA ER</button>
+          <button type="button" style="font:600 9.5px 'JetBrains Mono',monospace;letter-spacing:.12em;padding:7px 11px;border:1px solid #1B2A47;background:transparent;color:#93A6C2;cursor:pointer">SANDBOX</button>
+        </div>
+      </div>
+      <div style="padding:18px 20px;overflow-y:auto;flex:1;min-width:0">
+        <div style="border:1px solid #1B2A47;background:rgba(5,8,16,.75)">
+          <div style="display:flex;align-items:center;gap:8px;padding:8px 12px;border-bottom:1px solid #16223A;background:rgba(0,240,255,.03)">
+            <span style="width:6px;height:6px;border-radius:50%;background:#00F0FF"></span>
+            <span style="font:600 9px 'JetBrains Mono',monospace;letter-spacing:.16em;color:#5A6E8C">QUERY.SQL</span>
+          </div>
+          <textarea spellcheck="false" value="{{ sql }}" onChange="{{ onSql }}" onKeyDown="{{ onKey }}" style="width:100%;min-height:158px;font:400 .875rem/1.75 'JetBrains Mono',monospace;background:transparent;color:#DCE6F2;border:0;padding:14px;resize:vertical;outline:none;display:block"></textarea>
+        </div>
+        <div style="display:flex;gap:8px;margin-top:12px;flex-wrap:wrap">
+          <button type="button" onClick="{{ run }}" style="font:700 11px 'JetBrains Mono',monospace;letter-spacing:.14em;padding:11px 22px;border:1px solid #00F0FF;background:#00F0FF;color:#050810;cursor:pointer" style-hover="box-shadow:0 0 20px rgba(0,240,255,.4)">EXECUTAR</button>
+          <button type="button" onClick="{{ clear }}" style="font:600 11px 'JetBrains Mono',monospace;letter-spacing:.12em;padding:11px 16px;border:1px solid #1B2A47;background:transparent;color:#93A6C2;cursor:pointer">LIMPAR</button>
+          <sc-if value="{{ solved }}" hint-placeholder-val="{{ false }}">
+            <button type="button" onClick="{{ next }}" style="font:700 11px 'JetBrains Mono',monospace;letter-spacing:.14em;padding:11px 20px;border:1px solid #22C55E;background:rgba(34,197,94,.14);color:#4ADE80;cursor:pointer">PRÓXIMA MISSÃO →</button>
+          </sc-if>
+          <span style="flex:1"></span>
+          <button type="button" style="font:600 10px 'JetBrains Mono',monospace;letter-spacing:.12em;padding:11px 14px;border:1px solid rgba(239,68,68,.35);background:transparent;color:#FF6B7F;cursor:pointer">REINICIAR PROGRESSO</button>
+        </div>
+
+        <sc-if value="{{ hasFeedback }}" hint-placeholder-val="{{ false }}">
+          <div style="margin-top:16px;padding:12px 16px;border:1px solid {{ fbBorder }};background:{{ fbBg }};color:{{ fbFg }};font-size:.8125rem;line-height:1.6;animation:rise .25s ease-out">
+            <strong style="font-family:'JetBrains Mono',monospace;letter-spacing:.06em">{{ fbLabel }}</strong> {{ fbMessage }}
+          </div>
+        </sc-if>
+
+        <div style="margin-top:22px">
+          <div style="display:flex;align-items:center;gap:10px">
+            <span style="font:700 9px 'JetBrains Mono',monospace;letter-spacing:.2em;color:#5A6E8C">RESULTADOS</span>
+            <span style="height:1px;flex:1;background:#16223A"></span>
+            <span style="font:500 9px 'JetBrains Mono',monospace;color:#3F5170">{{ resultMeta }}</span>
+          </div>
+          <sc-if value="{{ hasRows }}" hint-placeholder-val="{{ true }}">
+          <div style="margin-top:10px;border:1px solid #1B2A47;overflow:auto;max-height:300px">
+            <table style="width:100%;border-collapse:collapse;font:400 .8125rem 'JetBrains Mono',monospace">
+              <thead><tr>
+                <sc-for list="{{ cols }}" as="c" hint-placeholder-count="2">
+                  <th style="position:sticky;top:0;padding:9px 12px;text-align:left;white-space:nowrap;background:#0E1728;color:#00F0FF;font-weight:700;font-size:.72rem;letter-spacing:.08em;border-bottom:1px solid #1B2A47">{{ c }}</th>
+                </sc-for>
+              </tr></thead>
+              <tbody>
+                <sc-for list="{{ rows }}" as="r" hint-placeholder-count="5">
+                  <tr style="background:{{ r.bg }}">
+                    <sc-for list="{{ r.cells }}" as="cell" hint-placeholder-count="2">
+                      <td style="padding:8px 12px;white-space:nowrap;border-bottom:1px solid #121C2E;color:#C6D4E6">{{ cell }}</td>
+                    </sc-for>
+                  </tr>
+                </sc-for>
+              </tbody>
+            </table>
+          </div>
+          </sc-if>
+          <sc-if value="{{ noRows }}" hint-placeholder-val="{{ false }}">
+            <p style="margin-top:12px;font:400 .8125rem 'JetBrains Mono',monospace;color:#3F5170">Aguardando consulta. Escreva sua query e execute.</p>
+          </sc-if>
+        </div>
+      </div>
+    </section>
+
+    <!-- painel investigativo -->
+    <aside style="border-left:1px solid #16223A;display:flex;flex-direction:column;min-height:0;background:rgba(7,10,17,.5)">
+      <div style="display:flex;flex-shrink:0;border-bottom:1px solid #16223A">
+        <sc-for list="{{ panelTabs }}" as="t" hint-placeholder-count="4">
+          <button type="button" onClick="{{ t.go }}" style="flex:1;padding:13px 4px;font:700 9px 'JetBrains Mono',monospace;letter-spacing:.12em;border:0;border-bottom:2px solid {{ t.line }};background:transparent;color:{{ t.fg }};cursor:pointer">{{ t.label }}</button>
+        </sc-for>
+      </div>
+      <div style="flex:1;overflow-y:auto;padding:16px">
+
+        <sc-if value="{{ tabEvidence }}" hint-placeholder-val="{{ true }}">
+          <sc-for list="{{ evidenceCards }}" as="e" hint-placeholder-count="4">
+            <div style="position:relative;margin-bottom:10px;border:1px solid {{ e.border }};background:{{ e.bg }};padding:13px 14px;overflow:hidden">
+              <div style="display:flex;align-items:center;justify-content:space-between;gap:8px">
+                <span style="font:700 9px 'JetBrains Mono',monospace;letter-spacing:.14em;color:{{ e.numFg }}">EVIDÊNCIA {{ e.num }}</span>
+                <span style="font:700 8.5px 'JetBrains Mono',monospace;letter-spacing:.14em;padding:3px 6px;border:1px solid {{ e.badgeBorder }};color:{{ e.badgeFg }};background:{{ e.badgeBg }}">{{ e.badge }}</span>
+              </div>
+              <p style="margin-top:9px;font-size:.78rem;line-height:1.6;color:{{ e.textColor }};filter:{{ e.blur }};user-select:{{ e.select }}">{{ e.text }}</p>
+            </div>
+          </sc-for>
+        </sc-if>
+
+        <sc-if value="{{ tabNetwork }}" hint-placeholder-val="{{ false }}">
+          <div style="border:1px solid #1B2A47;background:rgba(5,8,16,.6);padding:8px">
+            <svg viewBox="0 0 300 220" style="width:100%;height:auto;overflow:visible">
+              <sc-for list="{{ graphEdges }}" as="e" hint-placeholder-count="7">
+                <line x1="{{ e.x1 }}" y1="{{ e.y1 }}" x2="{{ e.x2 }}" y2="{{ e.y2 }}" stroke="{{ e.stroke }}" stroke-width="{{ e.width }}"></line>
+              </sc-for>
+              <sc-for list="{{ graphNodes }}" as="n" hint-placeholder-count="8">
+                <g>
+                  <circle cx="{{ n.x }}" cy="{{ n.y }}" r="{{ n.r }}" fill="{{ n.fill }}" stroke="{{ n.stroke }}" stroke-width="{{ n.strokeWidth }}"></circle>
+                  <text x="{{ n.x }}" y="{{ n.labelY }}" text-anchor="middle" font-family="JetBrains Mono, monospace" font-size="10" fill="{{ n.labelFill }}">{{ n.label }}</text>
+                </g>
+              </sc-for>
+            </svg>
+          </div>
+          <p style="margin-top:10px;font:500 9.5px 'JetBrains Mono',monospace;letter-spacing:.1em;color:#3F5170;text-align:center">NÓS ATIVOS = EVIDÊNCIAS DESCOBERTAS</p>
+        </sc-if>
+
+        <sc-if value="{{ tabTimeline }}" hint-placeholder-val="{{ false }}">
+          <sc-for list="{{ timeline }}" as="t" hint-placeholder-count="4">
+            <div style="display:flex;align-items:center;gap:9px;padding:10px 12px;margin-bottom:6px;border:1px solid #17243C;background:rgba(11,17,29,.7)">
+              <span style="font:700 8.5px 'JetBrains Mono',monospace;letter-spacing:.12em;padding:3px 7px;color:{{ t.fg }};background:{{ t.bg }};white-space:nowrap">{{ t.type }}</span>
+              <span style="flex:1;font-size:.75rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ t.label }}</span>
+              <span style="font:500 9px 'JetBrains Mono',monospace;color:#3F5170">{{ t.when }}</span>
+            </div>
+          </sc-for>
+          <button type="button" style="width:100%;margin-top:8px;font:600 10px 'JetBrains Mono',monospace;letter-spacing:.12em;padding:11px;border:1px solid #1B2A47;background:transparent;color:#93A6C2;cursor:pointer">VERIFICAR ORDEM · +200 PTS</button>
+        </sc-if>
+
+        <sc-if value="{{ tabSuspects }}" hint-placeholder-val="{{ false }}">
+          <sc-for list="{{ suspects }}" as="s" hint-placeholder-count="2">
+            <div style="margin-bottom:14px;border:1px solid #17243C;background:rgba(11,17,29,.7);padding:14px">
+              <div style="display:flex;align-items:baseline;justify-content:space-between;gap:8px">
+                <span style="font:600 .8125rem 'JetBrains Mono',monospace;color:#DCE6F2">{{ s.label }}</span>
+                <span style="font:700 .9rem 'JetBrains Mono',monospace;color:{{ s.color }}">{{ s.pct }}</span>
+              </div>
+              <div style="margin-top:10px;height:6px;background:#111B2D"><div style="height:100%;background:{{ s.fill }};width:{{ s.pct }}"></div></div>
+              <div style="margin-top:9px;font:500 9px 'JetBrains Mono',monospace;letter-spacing:.12em;color:#3F5170">{{ s.note }}</div>
+            </div>
+          </sc-for>
+          <button type="button" onClick="{{ openInterrogation }}" style="width:100%;font:700 10.5px 'JetBrains Mono',monospace;letter-spacing:.14em;padding:12px;border:1px solid #8B5CF6;background:rgba(139,92,246,.14);color:#C4B5FD;cursor:pointer">INICIAR INTERROGATÓRIO</button>
+        </sc-if>
+
+        <sc-if value="{{ tabHints }}" hint-placeholder-val="{{ false }}">
+          <div style="display:flex;align-items:center;gap:8px;padding:9px 11px;border:1px solid rgba(0,240,255,.2);background:rgba(0,240,255,.04);margin-bottom:12px">
+            <span style="width:6px;height:6px;border-radius:50%;background:#00F0FF;animation:blip 2s ease-in-out infinite"></span>
+            <span style="font:600 9px 'JetBrains Mono',monospace;letter-spacing:.14em;color:#00F0FF">CANAL CRIPTOGRAFADO · IA FORENSE</span>
+          </div>
+          <sc-for list="{{ hints }}" as="h" hint-placeholder-count="1">
+            <div style="margin-bottom:10px;border-left:2px solid #00F0FF;background:rgba(0,240,255,.05);padding:12px 14px">
+              <div style="font:700 9px 'JetBrains Mono',monospace;letter-spacing:.14em;color:#00F0FF">DICA {{ h.n }} · {{ h.source }}</div>
+              <p style="margin-top:8px;font-size:.78rem;line-height:1.6;color:#C6D4E6">{{ h.text }}</p>
+            </div>
+          </sc-for>
+          <button type="button" onClick="{{ askHint }}" style="width:100%;font:600 10px 'JetBrains Mono',monospace;letter-spacing:.12em;padding:12px;border:1px solid #1B2A47;background:transparent;color:#93A6C2;cursor:pointer" style-hover="border-color:#00F0FF;color:#00F0FF">{{ hintLabel }}</button>
+          <p style="margin-top:10px;font-size:.72rem;line-height:1.6;color:#3F5170">Cada dica reduz as estrelas da missão. Máximo de 3 por missão.</p>
+        </sc-if>
+
+      </div>
+    </aside>
+  </div>
+</div>
+</sc-if>
+
+<!-- ══ MODAL ER ══ -->
+<sc-if value="{{ showER }}" hint-placeholder-val="{{ false }}">
+<div onClick="{{ closeModals }}" style="position:fixed;inset:0;background:rgba(3,5,10,.82);backdrop-filter:blur(6px);display:flex;align-items:center;justify-content:center;z-index:1000;padding:24px">
+  <div style="width:min(860px,100%);border:1px solid #1B2A47;background:rgba(9,13,22,.97);box-shadow:0 30px 80px rgba(0,0,0,.7);animation:rise .25s ease-out">
+    <div style="display:flex;align-items:center;justify-content:space-between;padding:14px 20px;border-bottom:1px solid #16223A;background:rgba(139,92,246,.06)">
+      <span style="font:700 10px 'JetBrains Mono',monospace;letter-spacing:.2em;color:#A78BFA">DIAGRAMA ER · CASO #001</span>
+      <button type="button" onClick="{{ closeModals }}" style="font:600 10px 'JetBrains Mono',monospace;padding:6px 10px;border:1px solid #1B2A47;background:transparent;color:#93A6C2;cursor:pointer">FECHAR ✕</button>
+    </div>
+    <div style="padding:20px">
+      <div style="overflow:auto;max-height:min(62vh,500px);border:1px solid #16223A;background:rgba(5,8,16,.5);padding:8px">
+        <svg viewBox="{{ erViewBox }}" width="{{ erWidth }}" style="display:block;height:auto">
+          <sc-for list="{{ erRels }}" as="r" hint-placeholder-count="8">
+            <g>
+              <path d="{{ r.d }}" stroke="#8B5CF6" stroke-width="1.5" fill="none" opacity=".6"></path>
+              <circle cx="{{ r.fx }}" cy="{{ r.fy }}" r="3" fill="#8B5CF6" opacity=".8"></circle>
+              <circle cx="{{ r.tx }}" cy="{{ r.ty }}" r="3" fill="#8B5CF6" opacity=".8"></circle>
+            </g>
+          </sc-for>
+          <sc-for list="{{ erTables }}" as="t" hint-placeholder-count="6">
+            <g>
+              <rect x="{{ t.x }}" y="{{ t.y }}" width="{{ t.w }}" height="{{ t.h }}" rx="8" ry="8" fill="rgba(11,17,29,.92)" stroke="#1B2A47" stroke-width="1"></rect>
+              <rect x="{{ t.x }}" y="{{ t.y }}" width="{{ t.w }}" height="28" rx="8" ry="8" fill="rgba(0,240,255,.12)" stroke="#00F0FF" stroke-width="1.2"></rect>
+              <line x1="{{ t.x }}" y1="{{ t.headY }}" x2="{{ t.right }}" y2="{{ t.headY }}" stroke="#00F0FF" stroke-width="1" opacity=".5"></line>
+              <text x="{{ t.titleX }}" y="{{ t.titleY }}" font-family="JetBrains Mono, monospace" font-size="13" font-weight="700" fill="#00F0FF">{{ t.name }}</text>
+              <sc-for list="{{ t.cols }}" as="c" hint-placeholder-count="4">
+                <g>
+                  <text x="{{ c.x }}" y="{{ c.y }}" font-family="JetBrains Mono, monospace" font-size="11" font-weight="{{ c.weight }}" fill="{{ c.fill }}">{{ c.label }}</text>
+                  <text x="{{ c.typeX }}" y="{{ c.y }}" text-anchor="end" font-family="JetBrains Mono, monospace" font-size="11" fill="#5A6E8C">{{ c.type }}</text>
+                  <line x1="{{ c.sepX1 }}" y1="{{ c.sepY }}" x2="{{ c.sepX2 }}" y2="{{ c.sepY }}" stroke="#1B2A47" stroke-width="0.5" opacity="{{ c.sepOpacity }}"></line>
+                </g>
+              </sc-for>
+            </g>
+          </sc-for>
+        </svg>
+      </div>
+      <div style="display:flex;gap:18px;margin-top:14px;flex-wrap:wrap;font:600 9.5px 'JetBrains Mono',monospace;letter-spacing:.12em;color:#5A6E8C">
+        <span style="display:flex;align-items:center;gap:6px"><span style="width:8px;height:8px;background:#FBBF24"></span>CHAVE PRIMÁRIA</span>
+        <span style="display:flex;align-items:center;gap:6px"><span style="width:8px;height:8px;background:#8B5CF6"></span>CHAVE ESTRANGEIRA</span>
+        <span style="display:flex;align-items:center;gap:6px"><span style="width:8px;height:8px;background:#00F0FF"></span>TABELA</span>
+      </div>
+    </div>
+  </div>
+</div>
+</sc-if>
+
+<!-- ══ INTERROGATÓRIO ══ -->
+<sc-if value="{{ showInterrogation }}" hint-placeholder-val="{{ false }}">
+<div style="position:fixed;inset:0;background:rgba(3,5,10,.9);backdrop-filter:blur(8px);display:flex;align-items:center;justify-content:center;z-index:1000;padding:24px">
+  <div style="width:min(760px,100%);border:1px solid rgba(139,92,246,.4);background:rgba(9,13,22,.98);box-shadow:0 0 0 1px rgba(139,92,246,.12),0 30px 90px rgba(0,0,0,.8);overflow:hidden;animation:rise .3s ease-out">
+    <div style="position:absolute"></div>
+    <div style="display:flex;align-items:center;justify-content:space-between;padding:14px 22px;border-bottom:1px solid #16223A;background:rgba(139,92,246,.08)">
+      <span style="font:700 10px 'JetBrains Mono',monospace;letter-spacing:.22em;color:#A78BFA">SALA DE INTERROGATÓRIO · SESSÃO GRAVADA</span>
+      <span style="font:700 9px 'JetBrains Mono',monospace;letter-spacing:.18em;padding:4px 8px;border:1px solid rgba(239,68,68,.4);color:#FF6B7F;background:rgba(239,68,68,.09)">AO VIVO</span>
+    </div>
+    <div style="padding:26px 22px">
+      <div style="display:flex;align-items:center;gap:14px">
+        <div style="width:46px;height:46px;border:1px solid #8B5CF6;background:rgba(139,92,246,.14);display:flex;align-items:center;justify-content:center;font:700 15px 'JetBrains Mono',monospace;color:#C4B5FD">CT</div>
+        <div>
+          <div style="font:700 1.15rem 'JetBrains Mono',monospace;color:#F2F7FF">Camila Torres</div>
+          <div style="font:500 10px 'JetBrains Mono',monospace;letter-spacing:.14em;color:#5A6E8C;margin-top:4px">COORDENADORA DE TESOURARIA · ID 7</div>
+        </div>
+        <span style="flex:1"></span>
+        <span style="font:600 10px 'JetBrains Mono',monospace;letter-spacing:.12em;color:#5A6E8C">ETAPA 1 / 3</span>
+      </div>
+      <div style="margin-top:22px;border-left:2px solid #8B5CF6;background:rgba(139,92,246,.06);padding:16px 18px;font-size:1rem;line-height:1.6;color:#DCE6F2">“Não houve transferência irregular.”</div>
+      <div style="margin-top:22px;font:700 9px 'JetBrains Mono',monospace;letter-spacing:.18em;color:#5A6E8C">APRESENTAR EVIDÊNCIA</div>
+      <div style="margin-top:10px;display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:8px">
+        <sc-for list="{{ interrogationEvidence }}" as="ev" hint-placeholder-count="4">
+          <button type="button" style="padding:13px 14px;text-align:left;border:1px solid #1B2A47;background:rgba(11,17,29,.8);color:#C6D4E6;font-size:.8125rem;cursor:pointer" style-hover="border-color:#00F0FF;color:#00F0FF;background:rgba(0,240,255,.05)">{{ ev }}</button>
+        </sc-for>
+      </div>
+      <div style="margin-top:18px;padding:12px 16px;border:1px solid rgba(34,197,94,.3);background:rgba(34,197,94,.08);color:#4ADE80;font-size:.8125rem">A transferência de 12/03 prova o contrário.</div>
+      <div style="margin-top:20px;display:flex;justify-content:flex-end">
+        <button type="button" onClick="{{ closeModals }}" style="font:600 10.5px 'JetBrains Mono',monospace;letter-spacing:.12em;padding:11px 18px;border:1px solid #1B2A47;background:transparent;color:#93A6C2;cursor:pointer">ENCERRAR SESSÃO</button>
+      </div>
+    </div>
+  </div>
+</div>
+</sc-if>
+
+<!-- ══ CONCLUSÃO ══ -->
+<sc-if value="{{ showConclusion }}" hint-placeholder-val="{{ false }}">
+<div style="position:fixed;inset:0;background:rgba(3,5,10,.9);backdrop-filter:blur(8px);display:flex;align-items:center;justify-content:center;z-index:1000;padding:24px">
+  <div style="position:relative;width:min(680px,100%);border:1px solid #1B2A47;background:rgba(9,13,22,.98);box-shadow:0 30px 90px rgba(0,0,0,.8);overflow:hidden;animation:rise .3s ease-out">
+    <div style="position:absolute;top:26px;right:-26px;transform:rotate(12deg);border:2px solid rgba(34,197,94,.55);color:#4ADE80;font:800 12px 'JetBrains Mono',monospace;letter-spacing:.2em;padding:9px 42px;background:rgba(34,197,94,.06)">INQUÉRITO ARQUIVADO</div>
+    <div style="padding:14px 22px;border-bottom:1px solid #16223A;background:rgba(34,197,94,.05);font:700 10px 'JetBrains Mono',monospace;letter-spacing:.22em;color:#4ADE80">CASO #001 · ENCERRADO</div>
+    <div style="padding:30px 22px">
+      <h2 style="font:700 1.7rem 'JetBrains Mono',monospace;color:#F2F7FF">Investigação Concluída</h2>
+      <p style="margin-top:16px;color:#93A6C2;font-size:.875rem;line-height:1.75;max-width:58ch">Você cruzou todas as evidências e chegou ao veredito final. A culpada é Camila Torres, Coordenadora de Tesouraria (ID=7). Ela operou transações de alto valor para a conta externa "Nexus Consultoria" após as 22h, nos mesmos dias em que acessou o sistema financeiro à noite. Os e-mails interceptados confirmam a intenção: "urgente", "não registrar como desvio", "transferência ponte".</p>
+      <div style="margin-top:24px;display:grid;grid-template-columns:repeat(3,1fr);gap:10px">
+        <sc-for list="{{ conclusionStats }}" as="s" hint-placeholder-count="3">
+          <div style="border:1px solid #17243C;background:rgba(11,17,29,.7);padding:14px">
+            <div style="font:800 1.35rem 'JetBrains Mono',monospace;color:{{ s.color }}">{{ s.value }}</div>
+            <div style="margin-top:6px;font:600 8.5px 'JetBrains Mono',monospace;letter-spacing:.16em;color:#5A6E8C">{{ s.label }}</div>
+          </div>
+        </sc-for>
+      </div>
+      <p style="margin-top:20px;color:#5A6E8C;font-size:.8125rem">O caso está encerrado. Você pode continuar no Sandbox para explorar o banco livremente.</p>
+      <div style="margin-top:24px;display:flex;gap:8px;justify-content:flex-end">
+        <button type="button" onClick="{{ closeModals }}" style="font:600 10.5px 'JetBrains Mono',monospace;letter-spacing:.12em;padding:12px 18px;border:1px solid #1B2A47;background:transparent;color:#93A6C2;cursor:pointer">SANDBOX</button>
+        <button type="button" onClick="{{ goLobby }}" style="font:700 11px 'JetBrains Mono',monospace;letter-spacing:.14em;padding:12px 22px;border:1px solid #00F0FF;background:#00F0FF;color:#050810;cursor:pointer">PRÓXIMO CASO →</button>
+      </div>
+    </div>
+  </div>
+</div>
+</sc-if>
+
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;:{&quot;width&quot;:1440,&quot;height&quot;:900}}">
+const LEVELS = [
+  { id: 1, title: 'A Lista de Suspeitos', concept: 'SELECT', tables: ['funcionarios'], concepts: ['select'],
+    briefing: 'A comissão de ética pediu um relatório completo: quem são os funcionários da empresa e o que cada um faz? Sem essa lista, não temos como saber quem tinha acesso aos sistemas na época das transações suspeitas. Comece pelo princípio: liste todos os funcionários e seus cargos.',
+    objective: 'Retorne o nome e o cargo de todos os funcionários.',
+    hints: ['Você precisa escolher colunas específicas. Quais colunas mostram quem é a pessoa e o que ela faz?', 'A tabela se chama funcionarios. Use SELECT para escolher as colunas.', 'SELECT nome, cargo FROM funcionarios;'],
+    cols: ['nome', 'cargo'], rows: [['Ana Souza', 'Analista Financeira'], ['Bruno Oliveira', 'Analista de TI'], ['Bruno Alves', 'Coordenador de Operações'], ['Camila Torres', 'Coordenadora de Tesouraria'], ['Daniela Rocha', 'Analista Financeira'], ['Diego Ferreira', 'Analista Financeiro']],
+    evidence: 'Você obteve a lista completa de 10 funcionários. Entre eles estão analistas, coordenadores e gerentes — todos com acesso a algum sistema da empresa. A lista inclui nomes como Ana Souza, Bruno Oliveira, Bruno Alves, Daniela Rocha e outros.' },
+  { id: 2, title: 'Filtrando os Álibis', concept: 'WHERE', tables: ['funcionarios'], concepts: ['where'],
+    briefing: 'A investigação precisa focar. As transações suspeitas envolveram valores financeiros — então o departamento Financeiro é o palpite principal. Isole apenas os funcionários desse departamento para análise posterior. Eles são os que tinham acesso direto ao dinheiro.',
+    objective: 'Retorne o nome e o cargo dos funcionários do departamento Financeiro (departamento_id = 1).',
+    hints: ['Use WHERE para filtrar linhas. Qual condição identifica o departamento Financeiro?', 'O departamento Financeiro tem departamento_id = 1.', 'SELECT nome, cargo FROM funcionarios WHERE departamento_id = 1;'],
+    cols: ['nome', 'cargo'], rows: [['Ana Souza', 'Analista Financeira'], ['Diego Ferreira', 'Analista Financeiro'], ['Camila Torres', 'Coordenadora de Tesouraria'], ['Daniela Rocha', 'Analista Financeira']],
+    evidence: 'O departamento Financeiro tem 4 funcionários: Ana Souza, Diego Ferreira, Camila Torres e Daniela Rocha. Todos eles manipulam dinheiro no dia a dia.' },
+  { id: 3, title: 'Rastreando a Grana', concept: 'ORDER BY + LIMIT', tables: ['transacoes'], concepts: ['order by', 'limit'],
+    briefing: 'Os auditores detectaram movimentações incomuns de grandes valores. Precisamos identificar as 5 maiores transações registradas no sistema para entender para onde o dinheiro foi. Ordene por valor decrescente e pegue as 5 primeiras.',
+    objective: 'Retorne o id, valor_centavos e data_hora das 5 maiores transações, ordenadas pelo valor (do maior para o menor).',
+    hints: ['Ordenar do maior para o menor significa ORDER BY ... DESC. Como limitar a 5 resultados?', 'Use ORDER BY valor_centavos DESC e depois LIMIT 5.', 'SELECT id, valor_centavos, data_hora FROM transacoes ORDER BY valor_centavos DESC LIMIT 5;'],
+    cols: ['id', 'valor_centavos', 'data_hora'], rows: [['504', '7800000', '2024-03-22 01:10:00'], ['503', '7100000', '2024-03-18 23:30:00'], ['502', '6200000', '2024-03-15 22:45:00'], ['501', '5400000', '2024-03-12 23:15:00'], ['313', '5100000', '2024-03-08 14:02:00']],
+    evidence: 'As 5 maiores transações são todas acima de R$50.000. As 4 maiores foram para a mesma conta externa de destino — e as datas coincidem com os dias 12, 15, 18 e 22 de março de 2024.' },
+  { id: 4, title: 'O Horário Suspeito', concept: 'Datas + WHERE', tables: ['logs_acesso'], concepts: ['where'],
+    briefing: 'Os registros de acesso mostram que alguém entrou no sistema fora do horário normal de trabalho. A segurança reportou que os acessos após as 22h são raros e sempre justificados por plantão. Precisamos descobrir quem esteve no sistema tarde da noite.',
+    objective: 'Retorne o funcionario_id e a data_hora dos logs de acesso que ocorreram após as 22h (hora >= 22).',
+    hints: ['As datas estão no formato "YYYY-MM-DD HH:MM:SS". Como extrair apenas a hora?', "Use strftime('%H', data_hora) para extrair a hora e CAST(... AS INTEGER) para comparar numericamente.", "SELECT funcionario_id, data_hora FROM logs_acesso WHERE CAST(strftime('%H', data_hora) AS INTEGER) >= 22;"],
+    cols: ['funcionario_id', 'data_hora'], rows: [['7', '2024-03-12 22:30:00'], ['4', '2024-03-12 22:48:00'], ['7', '2024-03-15 22:10:00'], ['7', '2024-03-18 23:00:00'], ['7', '2024-03-22 00:52:00']],
+    evidence: 'O(a) funcionário(a) de ID 7 acessou o sistema financeiro tarde da noite nos mesmos dias das transações suspeitas — 12, 15 e 18 de março. Outro funcionário (ID 4) também entrou à noite, mas trabalha em operações. Quem é o ID 7?' },
+  { id: 5, title: 'Conectando os Pontos', concept: 'INNER JOIN', tables: ['transacoes', 'funcionarios'], concepts: ['join'],
+    briefing: 'As transações suspeitas têm um operador registrado. Precisamos cruzar as transações com os funcionários para descobrir quem executou cada operação. Use INNER JOIN para conectar a tabela de transações com a de funcionários.',
+    objective: 'Retorne o nome do funcionário e o valor_centavos das transações, unindo transações e funcionários pelo operador.',
+    hints: ['INNER JOIN conecta duas tabelas por uma coluna em comum. Qual coluna liga transacoes a funcionarios?', 'A coluna operador_funcionario_id em transacoes corresponde ao id em funcionarios.', 'SELECT f.nome, t.valor_centavos FROM transacoes t INNER JOIN funcionarios f ON t.operador_funcionario_id = f.id;'],
+    cols: ['nome', 'valor_centavos'], rows: [['Ana Souza', '120000'], ['Diego Ferreira', '85000'], ['Camila Torres', '5400000'], ['Camila Torres', '6200000'], ['Camila Torres', '7100000'], ['Camila Torres', '7800000']],
+    evidence: 'A maioria das transações grandes foi operada pela mesma pessoa: Camila Torres. Ela aparece como operadora de todas as transações acima de R$50.000 para a conta externa 999.' },
+  { id: 6, title: 'O Contador Sombrio', concept: 'GROUP BY + COUNT', tables: ['transacoes', 'funcionarios'], concepts: ['group by', 'count'],
+    briefing: 'Precisamos saber quantas transações cada funcionário executou. Isso nos ajuda a identificar quem movimentou dinheiro com frequência atípica.',
+    objective: 'Retorne o nome do funcionário e a quantidade de transações que ele executou.',
+    hints: ['GROUP BY agrupa as linhas por uma coluna. COUNT(*) conta quantas linhas há em cada grupo.', 'Agrupe pelo funcionário (f.id, f.nome) e use COUNT(*) AS total_transacoes.', 'SELECT f.nome, COUNT(*) AS total_transacoes FROM transacoes t INNER JOIN funcionarios f ON t.operador_funcionario_id = f.id GROUP BY f.id, f.nome;'],
+    cols: ['nome', 'total_transacoes'], rows: [['Ana Souza', '2'], ['Diego Ferreira', '2'], ['Camila Torres', '7'], ['Daniela Rocha', '1']],
+    evidence: 'Camila Torres executou 7 transações — mais do que qualquer outro funcionário. Ana Souza executou 2, Diego 2, e os outros 1 cada.' },
+  { id: 7, title: 'Acima do Limite', concept: 'HAVING', tables: ['transacoes', 'funcionarios'], concepts: ['group by', 'having'],
+    briefing: 'A comissão de ética definiu um critério: qualquer funcionário que tenha executado mais de 3 transações precisa ser investigado mais de perto.',
+    objective: 'Retorne o nome do funcionário e a quantidade de transações, apenas para funcionários com mais de 3 transações.',
+    hints: ['HAVING filtra grupos (como WHERE filtra linhas). Como filtrar grupos com mais de 3 transações?', 'Use HAVING COUNT(*) > 3 depois do GROUP BY.', 'SELECT f.nome, COUNT(*) AS total_transacoes FROM transacoes t INNER JOIN funcionarios f ON t.operador_funcionario_id = f.id GROUP BY f.id, f.nome HAVING COUNT(*) > 3;'],
+    cols: ['nome', 'total_transacoes'], rows: [['Camila Torres', '7']],
+    evidence: 'Apenas uma pessoa executou mais de 3 transações: Camila Torres, com 7. Todos os outros ficaram abaixo do limite.' },
+  { id: 8, title: 'Os Álibis Perfeitos', concept: 'LEFT JOIN + IS NULL', tables: ['funcionarios', 'transacoes'], concepts: ['left join', 'is null'],
+    briefing: 'Nem todos os funcionários executaram transações. Precisamos identificar quem nunca operou uma transação — eles estão fora da lista de suspeitos.',
+    objective: 'Retorne o nome dos funcionários que não executaram nenhuma transação.',
+    hints: ['LEFT JOIN inclui todos os funcionários, mesmo sem transação. Como identificar os que não têm nenhuma?', 'Quando um funcionário não tem transação, as colunas de transacoes ficam NULL. Use WHERE t.id IS NULL.', 'SELECT f.nome FROM funcionarios f LEFT JOIN transacoes t ON t.operador_funcionario_id = f.id WHERE t.id IS NULL;'],
+    cols: ['nome'], rows: [['Carla Mendes'], ['Gustavo Barbosa']],
+    evidence: 'Carla Mendes (RH) e Gustavo Barbosa (Comercial) nunca executaram transações. Eles estão descartados como suspeitos.' },
+  { id: 9, title: 'E-mails Comprometedores', concept: 'JOIN + LIKE', tables: ['emails', 'funcionarios'], concepts: ['join', 'like'],
+    briefing: 'A equipe de TI interceptou e-mails entre funcionários que podem conter pistas. Procure mensagens com palavras-chave suspeitas como "urgente", "fornecedor", "ponte" ou "não registrar".',
+    objective: 'Retorne o nome do remetente e o assunto dos e-mails cujo conteúdo contenha a palavra "urgente".',
+    hints: ['LIKE busca padrões de texto. Como tornar a busca case-insensitive?', "Use LOWER(e.conteudo) LIKE '%urgente%' para buscar a palavra em qualquer posição.", "SELECT f.nome, e.assunto FROM emails e INNER JOIN funcionarios f ON e.remetente_id = f.id WHERE LOWER(e.conteudo) LIKE '%urgente%';"],
+    cols: ['nome', 'assunto'], rows: [['Camila Torres', 'Pagamento Nexus']],
+    evidence: 'Apenas um e-mail contém a palavra "urgente": o de ID 801, enviado por Camila Torres para Diego Ferreira: "Preciso que o pagamento da Nexus seja processado amanhã. É urgente, não registrar como desvio."' },
+  { id: 10, title: 'Acima da Média', concept: 'Subquery', tables: ['transacoes'], concepts: ['avg', 'select'],
+    briefing: 'A média das transações pode nos ajudar a identificar quais valores estão acima do normal. Use uma subquery para calcular a média e depois filtrar as transações que a excedem.',
+    objective: 'Retorne o id, valor_centavos e data_hora das transações cujo valor é maior que a média de todas as transações.',
+    hints: ['Uma subquery é uma query dentro de outra. Como calcular a média dentro do WHERE?', 'Use (SELECT AVG(valor_centavos) FROM transacoes) como critério de comparação.', 'SELECT id, valor_centavos, data_hora FROM transacoes WHERE valor_centavos > (SELECT AVG(valor_centavos) FROM transacoes);'],
+    cols: ['id', 'valor_centavos', 'data_hora'], rows: [['313', '5100000', '2024-03-08 14:02:00'], ['501', '5400000', '2024-03-12 23:15:00'], ['502', '6200000', '2024-03-15 22:45:00'], ['503', '7100000', '2024-03-18 23:30:00'], ['504', '7800000', '2024-03-22 01:10:00']],
+    evidence: 'As transações acima da média incluem todas as 5 maiores (IDs 501-504, 313). Isso confirma que essas transações são outliers estatísticos.' },
+  { id: 11, title: 'Classificando o Risco', concept: 'CASE WHEN', tables: ['transacoes'], concepts: ['case', 'when'],
+    briefing: 'Precisamos classificar as transações por nível de risco para priorizar a investigação. Acima de 5.000.000 centavos é "alto risco"; entre 1.000.000 e 5.000.000, "médio"; abaixo disso, "baixo".',
+    objective: 'Retorne o id, valor_centavos e uma coluna "nivel_risco" com "alto", "medio" ou "baixo".',
+    hints: ['CASE WHEN cria colunas condicionais. Como classificar em três níveis?', "Use CASE WHEN valor_centavos > 5000000 THEN 'alto' WHEN valor_centavos > 1000000 THEN 'medio' ELSE 'baixo' END.", "SELECT id, valor_centavos, CASE WHEN valor_centavos > 5000000 THEN 'alto' WHEN valor_centavos > 1000000 THEN 'medio' ELSE 'baixo' END AS nivel_risco FROM transacoes;"],
+    cols: ['id', 'valor_centavos', 'nivel_risco'], rows: [['313', '5100000', 'alto'], ['501', '5400000', 'alto'], ['502', '6200000', 'alto'], ['503', '7100000', 'alto'], ['504', '7800000', 'alto'], ['211', '120000', 'baixo']],
+    evidence: 'As transações de "alto risco" são exatamente as 5 maiores. Todas as 4 transações para a conta 999 (Nexus) foram classificadas como alto risco.' },
+  { id: 12, title: 'O Veredito Final', concept: 'JOIN múltiplo + agregação', tables: ['funcionarios', 'transacoes', 'logs_acesso', 'emails'], concepts: ['join', 'group by'],
+    briefing: 'Chegou a hora de cruzar todas as evidências. Reúna transações, acessos noturnos e e-mails suspeitos em uma única query para identificar a culpada. A culpada é aquela que combina todas as evidências.',
+    objective: 'Retorne o nome, total_transacoes_alto_risco, total_acessos_noturnos e total_emails_suspeitos dos funcionários que atendem a todos os critérios.',
+    hints: ['Combine as três fontes: transações de alto risco (JOIN), acessos noturnos (subquery em logs_acesso) e e-mails suspeitos (subquery em emails).', 'Use subqueries correlacionadas para contar acessos noturnos e e-mails suspeitos de cada funcionário. HAVING garante que todos os critérios são atendidos.', 'A query completa cruza funcionários com transações de alto risco, e usa subqueries correlacionadas. A única funcionária que atende a todos os critérios é a culpada.'],
+    cols: ['nome', 'total_transacoes_alto_risco', 'total_acessos_noturnos', 'total_emails_suspeitos'], rows: [['Camila Torres', '5', '5', '2']],
+    evidence: 'A única funcionária que combina transações de alto risco, acessos noturnos após as 22h e e-mails com palavras suspeitas é Camila Torres (ID=7). O caso está resolvido.' },
+];
+
+/* Geometria copiada de src/er-diagram.js (TABLE_WIDTH 230, HEADER 28, ROW 20, PADDING 16, GAP_X 80, GAP_Y 60) */
+const ER_TABLES = [
+  { name: 'departamentos', col: 0, row: 0, columns: [['id','INTEGER','pk'],['nome','TEXT',''],['andar','INTEGER','']] },
+  { name: 'funcionarios', col: 1, row: 0, columns: [['id','INTEGER','pk'],['nome','TEXT',''],['cargo','TEXT',''],['departamento_id','INTEGER','fk'],['salario_centavos','INTEGER',''],['data_admissao','TEXT','']] },
+  { name: 'contas', col: 2, row: 0, columns: [['id','INTEGER','pk'],['numero_conta','TEXT',''],['funcionario_id','INTEGER','fk'],['titular_externo','TEXT',''],['banco','TEXT',''],['tipo','TEXT','']] },
+  { name: 'transacoes', col: 0, row: 1, columns: [['id','INTEGER','pk'],['conta_origem_id','INTEGER','fk'],['conta_destino_id','INTEGER','fk'],['valor_centavos','INTEGER',''],['data_hora','TEXT',''],['descricao','TEXT',''],['operador_funcionario_id','INTEGER','fk']] },
+  { name: 'logs_acesso', col: 1, row: 1, columns: [['id','INTEGER','pk'],['funcionario_id','INTEGER','fk'],['data_hora','TEXT',''],['tipo','TEXT',''],['local','TEXT','']] },
+  { name: 'emails', col: 2, row: 1, columns: [['id','INTEGER','pk'],['remetente_id','INTEGER','fk'],['destinatario_id','INTEGER','fk'],['assunto','TEXT',''],['data_hora','TEXT',''],['conteudo','TEXT','']] },
+];
+const ER_RELATIONS = [
+  ['funcionarios.departamento_id', 'departamentos.id'],
+  ['contas.funcionario_id', 'funcionarios.id'],
+  ['transacoes.conta_origem_id', 'contas.id'],
+  ['transacoes.conta_destino_id', 'contas.id'],
+  ['transacoes.operador_funcionario_id', 'funcionarios.id'],
+  ['logs_acesso.funcionario_id', 'funcionarios.id'],
+  ['emails.remetente_id', 'funcionarios.id'],
+  ['emails.destinatario_id', 'funcionarios.id'],
+];
+const ER = { W: 230, HEAD: 28, ROW: 20, PAD: 16, GX: 80, GY: 60 };
+
+function erLayout() {
+  const heights = {}, layout = {};
+  ER_TABLES.forEach(t => {
+    const h = ER.HEAD + t.columns.length * ER.ROW;
+    heights[t.row] = Math.max(heights[t.row] || 0, h);
+  });
+  const offsets = {}; let acc = ER.PAD;
+  const maxRow = Math.max(...ER_TABLES.map(t => t.row));
+  for (let r = 0; r <= maxRow; r++) { offsets[r] = acc; acc += heights[r] + ER.GY; }
+  ER_TABLES.forEach(t => {
+    layout[t.name] = { x: ER.PAD + t.col * (ER.W + ER.GX), y: offsets[t.row], h: ER.HEAD + t.columns.length * ER.ROW, table: t };
+  });
+  return layout;
+}
+function erColumnY(table, colName) {
+  const i = table.columns.findIndex(c => c[0] === colName);
+  return ER.HEAD + (i === -1 ? 0 : i) * ER.ROW + ER.ROW / 2;
+}
+function buildER(theme) {
+  const layout = erLayout();
+  let maxX = 0, maxY = 0;
+  Object.values(layout).forEach(p => { maxX = Math.max(maxX, p.x + ER.W); maxY = Math.max(maxY, p.y + p.h); });
+  const rels = ER_RELATIONS.map(([from, to]) => {
+    const [ft, fc] = from.split('.'), [tt, tc] = to.split('.');
+    const fl = layout[ft], tl = layout[tt];
+    const fy = fl.y + erColumnY(fl.table, fc), ty = tl.y + erColumnY(tl.table, tc);
+    const fx = fl.x + ER.W, tx = tl.x, mid = (fx + tx) / 2;
+    return { d: `M ${fx} ${fy} C ${mid} ${fy}, ${mid} ${ty}, ${tx} ${ty}`, fx, fy, tx, ty };
+  });
+  const tables = ER_TABLES.map(t => {
+    const p = layout[t.name];
+    return {
+      x: p.x, y: p.y, h: p.h, w: ER.W, name: t.name,
+      headY: p.y + ER.HEAD, titleY: p.y + 18, titleX: p.x + 10, right: p.x + ER.W,
+      cols: t.columns.map(([name, type, kind], i) => {
+        const y = p.y + ER.HEAD + i * ER.ROW + 14;
+        return {
+          y, x: p.x + 10, typeX: p.x + ER.W - 10, type,
+          label: kind === 'pk' ? 'PK ' + name : kind === 'fk' ? 'FK ' + name : name,
+          fill: kind === 'pk' ? theme.pk : kind === 'fk' ? theme.fk : theme.col,
+          weight: kind === 'pk' ? '700' : '400',
+          sepY: y + 6, sepX1: p.x + 8, sepX2: p.x + ER.W - 8,
+          sepOpacity: i < t.columns.length - 1 ? '.4' : '0',
+        };
+      }),
+    };
+  });
+  return { tables, rels, viewBox: `0 0 ${maxX + ER.PAD} ${maxY + ER.PAD}`, width: maxX + ER.PAD };
+}
+
+/* Geometria copiada de src/suspect-graph.js — GAMEPLAY.graph de src/levels.js, render 300x220 */
+const G_NODES = [
+  { id: 'suspeito-07', type: 'suspect', label: 'Pessoa de interesse #7', revealedLabel: 'Camila Torres', revealAtMission: 5 },
+  { id: 'suspeito-04', type: 'suspect', label: 'Pessoa de interesse #4', revealedLabel: 'Bruno Alves', revealAtMission: 99 },
+  { id: 'email-801', type: 'email', label: 'E-mail urgente', unlock: 9 },
+  { id: 'email-802', type: 'email', label: 'E-mail ponte', unlock: 9 },
+  { id: 'conta-999', type: 'external_account', label: 'Conta Nexus', unlock: 3 },
+  { id: 'log-701', type: 'access_log', label: 'Acesso 12/03 22:30', unlock: 4 },
+  { id: 'log-702', type: 'access_log', label: 'Acesso 15/03 22:10', unlock: 4 },
+  { id: 'log-703', type: 'access_log', label: 'Acesso 18/03 23:00', unlock: 4 },
+];
+const G_EDGES = [
+  ['suspeito-07', 'email-801'], ['suspeito-07', 'email-802'], ['suspeito-07', 'conta-999'],
+  ['suspeito-07', 'log-701'], ['suspeito-07', 'log-702'], ['suspeito-07', 'log-703'],
+  ['suspeito-04', 'log-701'],
+];
+function buildGraph(completed, suspicion, theme, width = 300, height = 220) {
+  const cx = width / 2, cy = height / 2, radius = Math.min(width, height) * 0.35;
+  const maxCompleted = completed.length ? Math.max(...completed) : 0;
+  const pos = new Map();
+  const suspects = G_NODES.filter(n => n.type === 'suspect');
+  const satellites = G_NODES.filter(n => n.type !== 'suspect');
+  suspects.forEach((n, i) => pos.set(n.id, { x: cx, y: cy + (i - (suspects.length - 1) / 2) * 30 }));
+  satellites.forEach((n, i) => {
+    const a = (2 * Math.PI * i) / satellites.length - Math.PI / 2;
+    pos.set(n.id, { x: cx + radius * Math.cos(a), y: cy + radius * Math.sin(a) });
+  });
+  const active = new Set(G_NODES.filter(n => (n.unlock ? completed.includes(n.unlock) : n.revealAtMission <= maxCompleted)).map(n => n.id));
+  const nodes = G_NODES.map(n => {
+    const p = pos.get(n.id), on = active.has(n.id), r = n.type === 'suspect' ? 24 : 16;
+    const fill = !on ? theme.inactive
+      : n.type === 'suspect' ? (suspicion >= 70 ? theme.suspectHigh : suspicion >= 40 ? theme.suspect : theme.suspectLow)
+      : theme[n.type];
+    return {
+      x: p.x.toFixed(1), y: p.y.toFixed(1), r, fill,
+      stroke: on ? (n.type === 'suspect' ? theme.suspectStroke : theme[n.type]) : theme.strokeOff,
+      strokeWidth: n.type === 'suspect' ? 2 : 1.5,
+      labelY: (p.y + r + 14).toFixed(1),
+      label: (n.revealedLabel && n.revealAtMission <= maxCompleted) ? n.revealedLabel : n.label,
+      labelFill: on ? theme.label : theme.labelOff,
+    };
+  });
+  const edges = G_EDGES.map(([s, t]) => {
+    const a = pos.get(s), b = pos.get(t), on = active.has(s) && active.has(t);
+    return { x1: a.x.toFixed(1), y1: a.y.toFixed(1), x2: b.x.toFixed(1), y2: b.y.toFixed(1), stroke: on ? theme.edgeOn : theme.edgeOff, width: on ? 2.5 : 1.5 };
+  });
+  return { nodes, edges };
+}
+
+class Component extends DCLogic {
+  state = {
+    screen: 'lobby', modal: null, lobbyTab: 'inv', tab: 'evid',
+    mission: 5, completed: [1, 2, 3, 4], sql: '', hintCount: 0, feedback: null, showRows: false,
+  };
+
+  level() { return LEVELS[this.state.mission - 1]; }
+
+  go(screen) { return () => this.setState({ screen, modal: null }); }
+
+  pick(id) {
+    return () => this.setState({ mission: id, sql: '', hintCount: 0, feedback: null, showRows: false });
+  }
+
+  run = () => {
+    const lv = this.level();
+    const sql = (this.state.sql || '').toLowerCase();
+    if (!sql.trim()) { this.setState({ feedback: 'empty' }); return; }
+    const ok = lv.concepts.every(c => sql.includes(c)) && lv.tables.some(t => sql.includes(t));
+    if (ok) {
+      const completed = this.state.completed.includes(lv.id) ? this.state.completed : [...this.state.completed, lv.id];
+      this.setState({ feedback: 'correct', showRows: true, completed });
+    } else {
+      this.setState({ feedback: 'wrong', showRows: false });
+    }
+  };
+
+  onKey = (e) => { if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') { e.preventDefault(); this.run(); } };
+
+  renderVals() {
+    const st = this.state, lv = this.level();
+    const solved = st.completed.includes(lv.id);
+    const tabBtn = (id, label) => ({ label, line: st.tab === id ? '#00F0FF' : 'transparent', fg: st.tab === id ? '#00F0FF' : '#5A6E8C', go: () => this.setState({ tab: id }) });
+    const nav = (id, label) => ({ label, go: this.go(id), border: st.screen === id ? '#00F0FF' : '#1B2A47', bg: st.screen === id ? 'rgba(0,240,255,.1)' : 'transparent', fg: st.screen === id ? '#00F0FF' : '#7D90AD' });
+
+    const fb = {
+      correct: { label: '✓ CORRETO.', message: 'Resultado confere com o esperado. Evidência desclassificada e anexada ao inquérito.', border: 'rgba(34,197,94,.35)', bg: 'rgba(34,197,94,.08)', fg: '#4ADE80' },
+      wrong: { label: '✕ RESULTADO INCORRETO.', message: 'A consulta rodou, mas não contempla o objetivo da missão. Revise os conceitos exigidos.', border: 'rgba(239,68,68,.35)', bg: 'rgba(239,68,68,.08)', fg: '#FF6B7F' },
+      empty: { label: '⚠ CONSULTA VAZIA.', message: 'Escreva uma query SELECT ou WITH antes de executar.', border: 'rgba(251,191,36,.35)', bg: 'rgba(251,191,36,.08)', fg: '#FBBF24' },
+    }[st.feedback];
+
+    const projects = [
+      ['🛒', '05', 'E-Commerce: Produtos & Receita', 'Descubra quais produtos e categorias geram maior faturamento e volume de vendas.', 'COMÉRCIO ELETRÔNICO'],
+      ['👥', '06', 'Clientes: Segmentação & LTV', 'Identifique os clientes mais valiosos (RFM) e analise riscos de churn e retenção.', 'INTELIGÊNCIA DE CRM'],
+      ['📈', '07', 'Vendas: Evolução & Metas', 'Acompanhe o faturamento mensal, calcule crescimento com LAG e audite metas regionais.', 'PERFORMANCE COMERCIAL'],
+      ['📣', '08', 'Marketing: Funil & ROI', 'Analise o funil de leads, taxas de conversão e calcule o ROI de campanhas de mídia.', 'GROWTH & AQUISIÇÃO'],
+      ['🚚', '09', 'Logística: Rotas & Atrasos', 'Mapeie atrasos por região, analise lead times reais com julianday e monitore transportadoras.', 'SUPPLY CHAIN & SLAS'],
+      ['📦', '10', 'Estoque: Giro & Curva ABC', 'Identifique produtos parados sem saídas, monitore estoques mínimos e valor imobilizado.', 'ARMAZENAGEM & MATERIAIS'],
+      ['🎓', '11', 'Educação: Rendimento & Evasão', 'Avalie taxas de reprovação por matéria e professor e identifique disciplinas críticas.', 'ANALYTICS ACADÊMICO'],
+      ['🏥', '12', 'Saúde: Demanda & Espera', 'Monitore filas de agendamento, tempo de espera na recepção e taxas de absenteísmo.', 'GESTÃO CLÍNICA'],
+      ['💳', '13', 'Finanças: Cartões & Risco', 'Audite faturas de cartão de crédito, identifique inadimplência e meça o comprometimento de limite.', 'BANKING & CRÉDITO'],
+      ['🎧', '14', 'Suporte: Help Desk & CSAT', 'Monitore tempos de resolução, conformidade de SLA por atendente e notas de satisfação CSAT.', 'CUSTOMER EXPERIENCE'],
+      ['🏛️', '15', 'Público: Cidades & Orçamento', 'Analise despesas públicas empenhadas e liquidadas em saúde e educação.', 'GOVTECH & TRANSPARÊNCIA'],
+      ['⚽', '16', 'Futebol: Scouts & Finalização', 'Avalie artilharia, pontaria de finalizações, criação de jogadas e participação em gols.', 'SPORTS ANALYTICS'],
+    ].map(([icon, n, title, description, category]) => ({ icon, tag: 'PROJETO #' + n, title, description, category }));
+
+    const invRaw = [
+      ['💸', 'CASO #001', 'O Mistério das Transações Fantasmas', 'Rastreie transações, acessos e e-mails para revelar um desvio no Financeiro.', 'FRAUDE FINANCEIRA', true],
+      ['🔒', 'CASO #002', 'Vazamento na Matriz', 'Descubra quem exportou dados pessoais para fora da empresa.', 'SEGURANÇA DE DADOS E LGPD', false],
+      ['₿', 'CASO #003', 'A Rota da Cripto-Ativo', 'Siga a pulverização de transferências entre carteiras.', 'LAVAGEM DE DINHEIRO', false],
+      ['📦', 'CASO #004', 'Sabotagem no E-Commerce', 'Reconstrua a sabotagem que criou estoque fantasma na Black Friday.', 'ESTOQUE E AUDITORIA', false],
+    ];
+    const investigations = invRaw.map(([icon, tag, title, description, category, open]) => open ? {
+      icon, tag, title, description, category, open: this.go('dossier'),
+      border: 'rgba(0,240,255,.28)', bg: 'linear-gradient(180deg,rgba(0,240,255,.05),rgba(11,17,29,.85))', stripe: '#00F0FF',
+      numColor: '#00F0FF', badge: 'LIBERADO', badgeBorder: 'rgba(34,197,94,.4)', badgeFg: '#4ADE80', badgeBg: 'rgba(34,197,94,.08)',
+      titleColor: '#F2F7FF', blur: 'none', iconFilter: 'none', cursor: 'pointer', action: 'ABRIR →', actionColor: '#00F0FF',
+    } : {
+      icon: '🔒', tag, title, description, category, open: () => {},
+      border: '#17243C', bg: 'rgba(9,13,22,.7)', stripe: '#2D2440',
+      numColor: '#3F5170', badge: '🔒 RESTRITO', badgeBorder: 'rgba(139,92,246,.35)', badgeFg: '#A78BFA', badgeBg: 'rgba(139,92,246,.08)',
+      titleColor: '#5A6E8C', blur: 'blur(3.4px)', iconFilter: 'grayscale(1) opacity(.5)', cursor: 'not-allowed', action: 'TOP SECRET', actionColor: '#3F5170',
+    });
+
+    const rail = LEVELS.map(l => {
+      const done = st.completed.includes(l.id), cur = l.id === st.mission;
+      return {
+        label: String(l.id), title: l.title, go: this.pick(l.id),
+        border: cur ? '#00F0FF' : done ? 'rgba(0,240,255,.35)' : '#1B2A47',
+        bg: cur ? 'rgba(0,240,255,.16)' : done ? 'rgba(0,240,255,.06)' : 'transparent',
+        fg: cur ? '#00F0FF' : done ? '#7DF7FF' : '#3F5170',
+      };
+    });
+
+    const evidenceCards = LEVELS.slice(0, Math.max(st.completed.length + 1, 5)).map(l => {
+      const open = st.completed.includes(l.id);
+      return open ? {
+        num: String(l.id).padStart(2, '0'), text: l.evidence, border: 'rgba(34,197,94,.28)', bg: 'rgba(34,197,94,.05)',
+        numFg: '#4ADE80', badge: '✓ DESCLASSIFICADO', badgeBorder: 'rgba(34,197,94,.4)', badgeFg: '#4ADE80', badgeBg: 'rgba(34,197,94,.08)',
+        textColor: '#C6D4E6', blur: 'none', select: 'auto',
+      } : {
+        num: String(l.id).padStart(2, '0'), text: l.evidence, border: '#17243C', bg: 'rgba(11,17,29,.6)',
+        numFg: '#3F5170', badge: 'CLASSIFICADO', badgeBorder: 'rgba(239,68,68,.35)', badgeFg: '#FF6B7F', badgeBg: 'rgba(239,68,68,.07)',
+        textColor: '#3F5170', blur: 'blur(3.6px)', select: 'none',
+      };
+    });
+
+    const done = st.completed.length;
+    const er = buildER({ pk: '#FBBF24', fk: '#A78BFA', col: '#C6D4E6' });
+    const graph = buildGraph(st.completed, Math.min(100, done * 12), {
+      inactive: '#1F2C45', suspect: '#8B5CF6', suspectHigh: '#00F0FF', suspectLow: '#7C5CD6', suspectStroke: '#8B5CF6',
+      email: '#A78BFA', external_account: '#FBBF24', access_log: '#22C55E',
+      strokeOff: '#2D4166', edgeOn: '#00F0FF', edgeOff: '#1B2A47', label: '#C6D4E6', labelOff: '#3F5170',
+    });
+
+    return {
+      erTables: er.tables, erRels: er.rels, erViewBox: er.viewBox, erWidth: er.width,
+      graphNodes: graph.nodes, graphEdges: graph.edges,
+      screens: [nav('lobby', 'ARQUIVO'), nav('dossier', 'DOSSIÊ'), nav('analysis', 'ETAPA 0'), nav('app', 'INQUÉRITO'),
+        { label: 'CONCLUSÃO', go: () => this.setState({ screen: 'app', modal: 'conclusion' }), border: '#1B2A47', bg: 'transparent', fg: '#7D90AD' }],
+      isLobby: st.screen === 'lobby', isDossier: st.screen === 'dossier', isAnalysis: st.screen === 'analysis', isApp: st.screen === 'app',
+      showER: st.modal === 'er', showInterrogation: st.modal === 'interrogation', showConclusion: st.modal === 'conclusion',
+      openER: () => this.setState({ modal: 'er' }), openInterrogation: () => this.setState({ modal: 'interrogation' }), closeModals: () => this.setState({ modal: null }),
+      goLobby: this.go('lobby'), goAnalysis: this.go('analysis'), goApp: this.go('app'),
+
+      lobbyStats: [
+        { value: '04', label: 'INVESTIGAÇÕES', color: '#00F0FF' },
+        { value: '12', label: 'PROJETOS', color: '#8B5CF6' },
+        { value: String(done).padStart(2, '0') + '/12', label: 'MISSÕES', color: '#4ADE80' },
+      ],
+      lobbyTabs: [
+        { label: 'CASOS INVESTIGATIVOS', go: () => this.setState({ lobbyTab: 'inv' }), bg: st.lobbyTab === 'inv' ? 'rgba(0,240,255,.12)' : 'transparent', fg: st.lobbyTab === 'inv' ? '#00F0FF' : '#5A6E8C' },
+        { label: 'PROJETOS DE DADOS', go: () => this.setState({ lobbyTab: 'proj' }), bg: st.lobbyTab === 'proj' ? 'rgba(139,92,246,.14)' : 'transparent', fg: st.lobbyTab === 'proj' ? '#A78BFA' : '#5A6E8C' },
+      ],
+      lobbyInvestigations: st.lobbyTab === 'inv', lobbyProjects: st.lobbyTab === 'proj',
+      investigations, projects,
+
+      dossierMeta: [
+        { label: 'EMPRESA', value: 'TechFin S.A.', color: '#DCE6F2' },
+        { label: 'JANELA', value: 'MAR/2024', color: '#DCE6F2' },
+        { label: 'CLASSIFICAÇÃO', value: 'FRAUDE FINANCEIRA', color: '#FF6B7F' },
+        { label: 'MISSÕES', value: '12 CONSULTAS SQL', color: '#00F0FF' },
+      ],
+
+      entities: [
+        { name: 'funcionarios', role: 'Mantém a identidade e os dados profissionais de cada pessoa.', key: 'PK id', relations: ['departamento_id → departamentos.id', 'É referenciada por transacoes, logs_acesso e emails'], badge: 'PII', badgeBorder: 'rgba(239,68,68,.4)', badgeFg: '#FF6B7F', badgeBg: 'rgba(239,68,68,.08)' },
+        { name: 'transacoes', role: 'Registra cada movimentação financeira como um fato independente.', key: 'PK id', relations: ['conta_origem_id / conta_destino_id → contas.id', 'operador_funcionario_id → funcionarios.id'], badge: 'SIGILOSO', badgeBorder: 'rgba(251,191,36,.4)', badgeFg: '#FBBF24', badgeBg: 'rgba(251,191,36,.07)' },
+        { name: 'logs_acesso', role: 'Preserva o histórico de entradas e saídas sem alterar o cadastro do funcionário.', key: 'PK id', relations: ['funcionario_id → funcionarios.id'], badge: 'AUDITORIA', badgeBorder: '#2D4166', badgeFg: '#7D90AD', badgeBg: 'transparent' },
+        { name: 'emails', role: 'Armazena mensagens e permite que uma pessoa apareça como remetente ou destinatária.', key: 'PK id', relations: ['remetente_id / destinatario_id → funcionarios.id'], badge: 'PII', badgeBorder: 'rgba(239,68,68,.4)', badgeFg: '#FF6B7F', badgeBg: 'rgba(239,68,68,.08)' },
+        { name: 'contas', role: 'Representa contas internas e externas, reutilizadas por muitas transações.', key: 'PK id', relations: ['funcionario_id → funcionarios.id quando a conta é interna'], badge: 'SIGILOSO', badgeBorder: 'rgba(251,191,36,.4)', badgeFg: '#FBBF24', badgeBg: 'rgba(251,191,36,.07)' },
+      ],
+      decisions: [
+        { title: 'Uma tabela por assunto', explanation: 'Separar cadastros de eventos reduz duplicação e aproxima o modelo da terceira forma normal: cada atributo descreve a chave da sua própria entidade.' },
+        { title: 'Relacionamentos por chaves', explanation: 'Os IDs funcionam como referências estáveis. Se o cargo de alguém mudar, basta atualizar funcionarios; o histórico continua ligado à mesma pessoa.' },
+        { title: 'Histórico sem sobrescrita', explanation: 'Transações, acessos e e-mails são relações um-para-muitos. Novos fatos viram novas linhas, em vez de novas colunas no cadastro.' },
+      ],
+      checkpoints: [
+        { label: 'Missão conceitual 1: Por que não gravar nome e cargo do operador dentro de cada transação?', answer: 'Isso repetiria dados, permitiria versões conflitantes do mesmo funcionário e criaria anomalias de atualização. A FK operador_funcionario_id resolve a identidade sem duplicação.' },
+        { label: 'Missão conceitual 2: Qual é a cardinalidade entre funcionarios e logs_acesso?', answer: 'Um-para-muitos: um funcionário pode gerar vários logs, enquanto cada log pertence a um único funcionário.' },
+        { label: 'Missão conceitual 3: Por que JOIN será central nesta investigação?', answer: 'A normalização mantém cada evidência no lugar correto. JOIN recompõe o contexto quando precisamos cruzar identidade, dinheiro, horário e comunicação.' },
+      ],
+
+      rail, missionNum: String(lv.id).padStart(2, '0'), missionTitle: lv.title, concept: lv.concept,
+      briefing: lv.briefing, objective: lv.objective, tables: lv.tables,
+      progressPct: Math.round((done / 12) * 100) + '%', progressLabel: done + '/12 MISSÕES', score: done * 100,
+      sql: st.sql, onSql: (e) => this.setState({ sql: e.target.value }), onKey: this.onKey,
+      run: this.run, clear: () => this.setState({ sql: '', feedback: null, showRows: false }),
+      next: () => this.pick(Math.min(12, lv.id + 1))(), solved,
+      hasFeedback: !!fb, fbLabel: fb ? fb.label : '', fbMessage: fb ? fb.message : '', fbBorder: fb ? fb.border : '', fbBg: fb ? fb.bg : '', fbFg: fb ? fb.fg : '',
+      hasRows: st.showRows, noRows: !st.showRows,
+      cols: lv.cols, rows: lv.rows.map((cells, i) => ({ cells, bg: i % 2 ? 'rgba(19,30,51,.32)' : 'transparent' })),
+      resultMeta: st.showRows ? lv.rows.length + ' LINHAS' : '—',
+
+      panelTabs: [tabBtn('evid', 'EVIDÊNCIAS'), tabBtn('rede', 'REDE'), tabBtn('tempo', 'TEMPO'), tabBtn('susp', 'SUSPEITOS'), tabBtn('dicas', 'DICAS')],
+      tabEvidence: st.tab === 'evid', tabNetwork: st.tab === 'rede', tabTimeline: st.tab === 'tempo', tabSuspects: st.tab === 'susp', tabHints: st.tab === 'dicas',
+      evidenceCards,
+      timeline: [
+        { type: 'ACESSO', label: 'Acesso noturno ao Financeiro', when: '12/03 22:30', bg: 'rgba(139,92,246,.14)', fg: '#A78BFA' },
+        { type: 'TRANSAÇÃO', label: 'Transferência de alto valor', when: '12/03 23:15', bg: 'rgba(0,240,255,.12)', fg: '#00F0FF' },
+        { type: 'ACESSO', label: 'Acesso noturno à Tesouraria', when: '15/03 22:10', bg: 'rgba(139,92,246,.14)', fg: '#A78BFA' },
+        { type: 'TRANSAÇÃO', label: 'Transferência de alto valor', when: '15/03 22:45', bg: 'rgba(0,240,255,.12)', fg: '#00F0FF' },
+        { type: 'ACESSO', label: 'Acesso noturno ao Financeiro', when: '18/03 23:00', bg: 'rgba(139,92,246,.14)', fg: '#A78BFA' },
+      ],
+      suspects: [
+        { label: 'Pessoa de interesse #7', pct: Math.min(100, done * 12) + '%', color: '#A78BFA', fill: 'linear-gradient(90deg,#8B5CF6,#C084FC)', note: 'ACESSOS NOTURNOS · ALTO VALOR' },
+        { label: 'Pessoa de interesse #4', pct: '15%', color: '#7D90AD', fill: 'linear-gradient(90deg,#2D4166,#4B5F82)', note: 'OPERAÇÕES · SEM ACESSO FINANCEIRO' },
+      ],
+      hints: LEVELS[st.mission - 1].hints.slice(0, st.hintCount).map((text, i) => ({ n: i + 1, text, source: i === 0 ? 'IA FORENSE' : 'BASE LOCAL' })),
+      askHint: () => this.setState({ hintCount: Math.min(3, st.hintCount + 1) }),
+      hintLabel: st.hintCount >= 3 ? 'LIMITE DE DICAS ATINGIDO' : 'SOLICITAR DICA (' + (3 - st.hintCount) + ' RESTANTES)',
+      interrogationEvidence: ['Transferência de alto valor · 12/03', 'Acesso noturno ao Financeiro', 'Pedido urgente enviado', 'Mensagem sobre transferência ponte'],
+      conclusionStats: [
+        { value: '1400', label: 'PONTUAÇÃO FINAL', color: '#00F0FF' },
+        { value: '32/36', label: 'ESTRELAS', color: '#FBBF24' },
+        { value: '12/12', label: 'MISSÕES', color: '#4ADE80' },
+      ],
+    };
+  }
+}
+</script>
+</body>
+</html>

@@ -27,6 +27,7 @@ function getDefaultCaseProgress() {
     timelineBonusAwarded: false,
     bonusPoints: 0,
     interrogation: { status: 'locked', stepIndex: 0, presentedEvidenceIds: [] },
+    lessonsRead: [],
   };
 }
 
@@ -82,6 +83,11 @@ function validateCaseProgress(data) {
     result.interrogation = { status, stepIndex, presentedEvidenceIds };
   }
 
+  // --- Aulas lidas ---
+  if (Array.isArray(data.lessonsRead)) {
+    result.lessonsRead = [...new Set(data.lessonsRead.filter(id => typeof id === 'string'))];
+  }
+
   return result;
 }
 
@@ -112,6 +118,7 @@ function hasProgress(progress) {
     || progress.timelineBonusAwarded
     || progress.bonusPoints > 0
     || (progress.interrogation && progress.interrogation.status !== 'locked')
+    || (progress.lessonsRead && progress.lessonsRead.length > 0)
   ));
 }
 
@@ -143,6 +150,7 @@ function serializeState(stateData) {
       timelineBonusAwarded: stateData.timelineBonusAwarded,
       bonusPoints: stateData.bonusPoints,
       interrogation: stateData.interrogation,
+      lessonsRead: stateData.lessonsRead,
     });
   }
   return { currentCase: normalized.currentCase, progressByCase: normalized.progressByCase };

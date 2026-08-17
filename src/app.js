@@ -1,21 +1,14 @@
 /**
- * app.js — Ponto de entrada do SQL Detective.
- *
- * Fase 5: pontuação, dicas e persistência.
- * - Carrega progresso salvo do localStorage no início
- * - Calcula estrelas ao acertar (3 sem dicas, 2 com 1, 1 com 2+)
- * - Preserva a melhor pontuação de cada nível
- * - Salva após cada ação importante
- * - Botão de reiniciar progresso com confirmação
+ * app.js — Ponto de entrada do SQL Detective (Cyber Forensics).
  */
 
-import { state, resetState, activateCaseProgress, syncActiveCaseProgress, createCaseProgress } from './state.js';
+import { state, activateCaseProgress, syncActiveCaseProgress, createCaseProgress } from './state.js';
 import { initDB, getSchemaText, getDB, getSchemaDetailed } from './db.js';
 import { executeQuery } from './executor.js';
-import { getAllCases, getCaseById, isCaseAvailable, isCaseComplete, getInvestigations, getProjects } from './case-manager.js';
-import { validateLevel, FEEDBACK_CORRECT, FEEDBACK_WRONG_RESULT, FEEDBACK_MISSING_CONCEPT, FEEDBACK_SQL_ERROR, FEEDBACK_MISSING_COLUMNS, FEEDBACK_BLOCKED } from './validator.js';
-import { calculateStars, calculateScore, calculateTotalScore, calculateTotalStars, calculateMaxStars, updateLevelProgress } from './scoring.js';
-import { saveState, loadState, clearState } from './storage.js';
+import { getCaseById, isCaseAvailable, isCaseComplete, getInvestigations, getProjects } from './case-manager.js';
+import { validateLevel, FEEDBACK_CORRECT } from './validator.js';
+import { calculateStars, calculateTotalScore, calculateTotalStars, calculateMaxStars, updateLevelProgress } from './scoring.js';
+import { saveState, loadState } from './storage.js';
 import {
   initDOM,
   hideLoading,
@@ -23,7 +16,6 @@ import {
   hideGlobalError,
   setDbStatus,
   setMissionStatus,
-  setBriefing,
   setSchema,
   setResults,
   renderResults,
@@ -31,10 +23,9 @@ import {
   setEditorValue,
   clearEditor,
   enableEditorButtons,
-  setProgress,
   setHints,
-  setEvidence,
   showTabs,
+  hideTabs,
   initTabs,
   activatePanel,
   renderFromState,
@@ -62,48 +53,146 @@ import {
   showStartInterrogationButton,
   escapeHtml,
   renderGraph,
+  renderMissionRail,
+  initSidebarTabs,
+  activateSidebarTab,
+  configureSidebarTabs,
+  updateLessonTabBadge,
+  setLesson,
+  initLobbyTabs,
+  activateLobbyTab,
+  setHeaderCaseInfo,
+  renderHeaderProgress,
 } from './ui.js';
+import { renderLessonHtml } from './lesson.js';
 import { renderERDiagram } from './er-diagram.js';
-import { getCourseContentByLevel, getCourseContentById } from './course-content.js';
+import { getCourseContentById } from './course-content.js';
 import { buildHintContext, requestAiHint } from './ai-hints.js';
-import { getUnlockedEvents, normalizeOrder, moveEvent, validateOrder, checkTimelineBonus } from './timeline.js';
-import { deriveSuspicion, getSuspectProfiles } from './suspect-meter.js';
-import { isInterrogationAvailable, startInterrogation, presentEvidence, normalizeInterrogationState } from './interrogation.js';
+import { getUnlockedEvents, normalizeOrder, moveEvent, checkTimelineBonus } from './timeline.js';
+import { deriveSuspicion } from './suspect-meter.js';
+import { startInterrogation, presentEvidence } from './interrogation.js';
 import { initSfx, setSfxEnabled, isSfxEnabled, playTypingSound, playAlertSound, playSuccessSound } from './sfx.js';
 
 function getActiveCase() {
   return getCaseById(state.currentCase) || getCaseById('case001');
 }
 
+function getCourseItemsForLevel(level) {
+  return level?.courseRefs
+    ? level.courseRefs.map(ref => getCourseContentById(ref)).filter(Boolean)
+    : [];
+}
+
+/** Exibe uma aula principal ou uma revisão completa sem trocar de missão. */
+function showCourseLesson(courseId) {
+  const activeCase = getActiveCase();
+  const level = activeCase?.getLevel(state.currentLevel);
+  const courseItems = getCourseItemsForLevel(level);
+  const selected = courseItems.find(item => item.id === courseId);
+  if (!selected) return false;
+
+  const orderedItems = [selected, ...courseItems.filter(item => item.id !== courseId)];
+  setLesson(renderLessonHtml(orderedItems, level));
+  updateLessonTabBadge(!state.lessonsRead.includes(selected.id));
+  activateSidebarTab('lesson');
+  activatePanel('sidebar');
+  const pane = document.getElementById('sidebar-pane-lesson');
+  if (pane) pane.scrollTop = 0;
+  return true;
+}
+
 function configureIntro(caseDefinition) {
   const intro = caseDefinition.CASE_INTRO;
   const isProject = caseDefinition.type === 'project';
-  const scenarioLabel = isProject ? 'Projeto' : 'Caso';
+  const scenarioTag = isProject ? `PROJETO #${caseDefinition.number}` : `CASO #${caseDefinition.number}`;
+
   const title = document.querySelector('.intro-subtitle');
   const story = document.querySelector('.intro-story');
   const mission = document.querySelector('.intro-mission');
-  const appSubtitle = document.querySelector('.app-subtitle');
   const btnStart = document.getElementById('btn-start');
   const briefingTitle = document.getElementById('briefing-panel-title');
   const editorTitle = document.getElementById('editor-panel-title');
   const briefingTab = document.getElementById('briefing-tab-label');
   const erDescription = document.getElementById('er-description');
+  const erModalTitle = document.getElementById('er-modal-title');
+
+  const dossierCase = document.getElementById('dossier-header-case');
+  const dossierBadge = document.getElementById('dossier-header-badge');
+  const dossierEmpresa = document.getElementById('dossier-meta-empresa');
+  const dossierEmpresaLabel = document.getElementById('dossier-meta-empresa-label');
+  const dossierJanela = document.getElementById('dossier-meta-janela');
+  const dossierJanelaLabel = document.getElementById('dossier-meta-janela-label');
+  const dossierClassificacao = document.getElementById('dossier-meta-classificacao');
+  const dossierMissoes = document.getElementById('dossier-meta-missoes');
+  const conclusionStamp = document.getElementById('conclusion-stamp');
+  const conclusionHeading = document.getElementById('conclusion-heading');
+  const conclusionClose = document.getElementById('btn-conclusion-close');
+  const resetDescription = document.getElementById('reset-modal-description');
+
+  document.title = `${caseDefinition.title} — SQL Detective`;
+
   if (title) title.textContent = intro.title;
-  if (story) story.textContent = intro.story;
-  if (mission) mission.textContent = intro.mission;
-  if (appSubtitle) appSubtitle.textContent = `${intro.subtitle} — ${intro.title}`;
-  if (btnStart) btnStart.textContent = isProject ? 'Iniciar projeto' : 'Iniciar investigação';
-  if (briefingTitle) briefingTitle.textContent = scenarioLabel;
-  if (editorTitle) editorTitle.textContent = isProject ? 'Análise SQL' : 'Investigação';
-  if (briefingTab) briefingTab.textContent = scenarioLabel;
+  if (story) {
+    story.innerHTML = intro.story.split('\n').filter(Boolean).map(p => `<p>${escapeHtml(p)}</p>`).join('');
+  }
+  if (mission) mission.textContent = `RESOLVA AS ${caseDefinition.getTotalLevels()} MISSÕES PARA CONCLUIR A ${isProject ? 'ANÁLISE' : 'INVESTIGAÇÃO'}`;
+  if (btnStart) btnStart.textContent = isProject ? 'INICIAR PROJETO →' : 'ABRIR INQUÉRITO →';
+  if (briefingTitle) briefingTitle.textContent = isProject ? 'PROJETO' : 'INQUÉRITO';
+  if (editorTitle) editorTitle.textContent = isProject ? 'ANÁLISE SQL' : 'CONSOLE FORENSE';
+  if (briefingTab) briefingTab.textContent = isProject ? 'Projeto' : 'Cenário';
   if (erDescription) {
     erDescription.textContent = `Tabelas, colunas e relações do banco de dados ${isProject ? 'do projeto' : 'da investigação'}.`;
   }
+  if (erModalTitle) {
+    erModalTitle.textContent = `DIAGRAMA ER · ${scenarioTag}`;
+  }
+
+  if (dossierCase) {
+    dossierCase.textContent = `${scenarioTag} · ${caseDefinition.category?.toUpperCase() || 'FINANCEIRO'}`;
+  }
+  if (dossierBadge) {
+    if (isProject) {
+      dossierBadge.textContent = '📊 ANALYTICS';
+      dossierBadge.className = 'pill-badge concept-tag';
+    } else {
+      dossierBadge.textContent = '🚨 CONFIDENCIAL';
+      dossierBadge.className = 'pill-badge confidential';
+    }
+  }
+  const investigationContexts = {
+    case001: { context: 'TechFin S.A.', period: 'MAR/2024' },
+    case002: { context: 'MATRIZ CORPORATIVA', period: 'INCIDENTE ATIVO' },
+    case003: { context: 'REDE CRIPTO', period: 'JANELA DE 72H' },
+    case004: { context: 'TechStore', period: 'BLACK FRIDAY' },
+  };
+  const dossierContext = investigationContexts[caseDefinition.id];
+  if (dossierEmpresaLabel) dossierEmpresaLabel.textContent = isProject ? 'DOMÍNIO' : 'CONTEXTO';
+  if (dossierEmpresa) dossierEmpresa.textContent = isProject
+    ? (caseDefinition.category?.toUpperCase() || 'ANÁLISE DE DADOS')
+    : (dossierContext?.context || caseDefinition.title);
+  if (dossierJanelaLabel) dossierJanelaLabel.textContent = isProject ? 'MODALIDADE' : 'JANELA';
+  if (dossierJanela) dossierJanela.textContent = isProject
+    ? 'PROJETO ANALÍTICO'
+    : (dossierContext?.period || 'DOSSIÊ ATIVO');
+  if (dossierClassificacao) {
+    dossierClassificacao.textContent = caseDefinition.category?.toUpperCase() || (isProject ? 'ANALYTICS' : 'FRAUDE FINANCEIRA');
+    dossierClassificacao.style.color = isProject ? 'var(--accent-purple-light)' : 'var(--status-danger-light)';
+  }
+  if (dossierMissoes) {
+    dossierMissoes.textContent = `${caseDefinition.getTotalLevels()} CONSULTAS SQL`;
+  }
+  if (conclusionStamp) conclusionStamp.textContent = isProject ? 'PROJETO CONCLUÍDO' : 'INQUÉRITO ARQUIVADO';
+  if (conclusionHeading) conclusionHeading.textContent = isProject ? 'Análise Concluída' : 'Investigação Concluída';
+  if (conclusionClose) conclusionClose.textContent = isProject ? 'VOLTAR AOS PROJETOS →' : 'PRÓXIMO CASO →';
+  if (resetDescription) {
+    resetDescription.textContent = `Todo o seu progresso (estrelas, pontuação e evidências) deste ${isProject ? 'projeto' : 'caso'} será apagado. Os demais cenários serão preservados. Esta ação não pode ser desfeita.`;
+  }
+
+  setHeaderCaseInfo(scenarioTag, !isProject);
 }
 
 /**
  * Exibe a Etapa 0 com o desenho do banco e os checkpoints conceituais do caso.
- * Retorna false quando o caso não fornece essa configuração.
  */
 function showDatabaseAnalysis(caseDefinition = getActiveCase()) {
   const analysis = caseDefinition?.DATABASE_ANALYSIS;
@@ -125,7 +214,10 @@ function showDatabaseAnalysis(caseDefinition = getActiveCase()) {
         ? `<ul class="database-analysis-relations">${entity.relations.map(relation => `<li>${escapeHtml(relation)}</li>`).join('')}</ul>`
         : '';
       return `<article class="database-analysis-entity">
-        <h3>${escapeHtml(entity.name)}</h3>
+        <div style="display: flex; justify-content: space-between; align-items: center; gap: 8px;">
+          <h3>${escapeHtml(entity.name)}</h3>
+          <span class="pill-badge" style="border: 1px solid rgba(0, 240, 255, 0.3); color: var(--accent-cyan); font-size: 8px;">TABELA</span>
+        </div>
         <p>${escapeHtml(entity.role)}</p>
         <span class="database-analysis-key">${escapeHtml(entity.key)}</span>
         ${relations}
@@ -145,7 +237,7 @@ function showDatabaseAnalysis(caseDefinition = getActiveCase()) {
   if (checkpoints) {
     checkpoints.innerHTML = (analysis.checkpoints || []).map((checkpoint, index) => `
       <details class="database-analysis-checkpoint">
-        <summary>Missão conceitual ${index + 1}: ${escapeHtml(checkpoint.question)}</summary>
+        <summary>Missão conceitual ${index + 1}: ${escapeHtml(checkpoint.question || checkpoint.label || '')}</summary>
         <p>${escapeHtml(checkpoint.answer)}</p>
       </details>
     `).join('');
@@ -165,6 +257,8 @@ function hideDatabaseAnalysis() {
 function showCaseSelection() {
   const screen = document.getElementById('case-select-screen');
   if (screen) screen.classList.remove('hidden');
+  document.title = 'SQL Detective — Cyber Forensics';
+  activateLobbyTab(getActiveCase().type === 'project' ? 'projects' : 'investigations');
   renderCaseSelection();
 }
 
@@ -176,16 +270,36 @@ function hideCaseSelection() {
 function renderCaseCard(caseDefinition) {
   const available = isCaseAvailable(caseDefinition.id, state.progressByCase);
   const completed = isCaseComplete(caseDefinition, state.progressByCase);
-  const status = completed ? 'Concluído' : available ? 'Disponível' : 'Bloqueado';
-  const disabled = available ? '' : 'disabled';
-  const tag = caseDefinition.type === 'project'
-    ? `PROJETO #${caseDefinition.number}`
-    : `CASO #${caseDefinition.number}`;
   const isProject = caseDefinition.type === 'project';
-  return `<button type="button" class="case-card ${isProject ? 'project-card' : ''} ${available ? '' : 'case-card-locked'}" data-case-id="${caseDefinition.id}" ${disabled}>
-    <span class="case-icon">${caseDefinition.icon}</span><span class="case-number">${tag}</span>
-    <strong>${escapeHtml(caseDefinition.title)}</strong><span>${escapeHtml(caseDefinition.description)}</span><em>${status}</em>
-  </button>`;
+  const tag = isProject ? `PROJETO #${caseDefinition.number}` : `CASO #${caseDefinition.number}`;
+  const disabled = available ? '' : 'disabled';
+  const cardClass = `case-card ${isProject ? 'project-card' : ''} ${available ? '' : 'case-card-locked'}`;
+
+  const badgeText = completed ? 'CONCLUÍDO' : available ? 'LIBERADO' : '🔒 RESTRITO';
+  const badgeStyle = completed
+    ? 'border-color: rgba(34, 197, 94, .4); color: #4ADE80; background: rgba(34, 197, 94, .08);'
+    : available
+      ? 'border-color: rgba(0, 240, 255, .4); color: #00F0FF; background: rgba(0, 240, 255, .08);'
+      : 'border-color: rgba(139, 92, 246, .35); color: #A78BFA; background: rgba(139, 92, 246, .08);';
+
+  const actionText = available ? 'ABRIR →' : 'TOP SECRET';
+  const categoryText = caseDefinition.category?.toUpperCase() || (isProject ? 'ANALYTICS' : 'INVESTIGAÇÃO');
+
+  return `
+    <button type="button" class="${cardClass}" data-case-id="${caseDefinition.id}" ${disabled}>
+      <div class="case-card-header">
+        <span class="case-number">${tag}</span>
+        <span class="pill-badge" style="${badgeStyle}">${badgeText}</span>
+      </div>
+      <span class="case-icon">${caseDefinition.icon}</span>
+      <strong>${escapeHtml(caseDefinition.title)}</strong>
+      <span>${escapeHtml(caseDefinition.description)}</span>
+      <div class="case-card-footer">
+        <span class="case-category">${escapeHtml(categoryText)}</span>
+        <span class="case-action-label">${actionText}</span>
+      </div>
+    </button>
+  `;
 }
 
 function renderCaseSelection() {
@@ -203,9 +317,6 @@ function renderCaseSelection() {
   if (projectsContainer) {
     if (projects.length > 0) {
       projectsContainer.innerHTML = projects.map(renderCaseCard).join('');
-      if (projectSection) projectSection.hidden = false;
-    } else {
-      if (projectSection) projectSection.hidden = true;
     }
   }
 
@@ -215,6 +326,9 @@ function renderCaseSelection() {
       button.addEventListener('click', () => selectCase(button.dataset.caseId));
     });
   }
+
+  const activeCase = getActiveCase();
+  renderHeaderProgress(state.completedLevels.length, activeCase.getTotalLevels());
 }
 
 async function selectCase(caseId) {
@@ -257,16 +371,33 @@ function persistState() {
     timelineBonusAwarded: state.timelineBonusAwarded,
     bonusPoints: state.bonusPoints,
     interrogation: state.interrogation,
+    lessonsRead: state.lessonsRead,
   });
 }
 
-/** Recalcula a pontuacao sem perder bonus ja concedidos. */
 function recalculateScore() {
   state.score = calculateTotalScore(state.levelProgress, state.bonusPoints);
   return state.score;
 }
 
-/** Recria views de missões já concluídas depois que o banco em memória é recarregado. */
+/** Apaga somente o progresso do cenário ativo, preservando os demais. */
+function resetActiveCaseProgress() {
+  const activeCaseId = state.currentCase;
+  syncActiveCaseProgress();
+  state.progressByCase[activeCaseId] = createCaseProgress();
+  activateCaseProgress(activeCaseId);
+  state.sandboxMode = false;
+  state.savedLevel = null;
+  state.hintsRevealed = [];
+  state.lastResult = null;
+  state.queryExecuted = false;
+  state.lastValidationFeedback = null;
+  state.hintRequestInFlight = false;
+  state.activeHintRequestToken = null;
+  persistState();
+  return activeCaseId;
+}
+
 function restoreCompletedMissionViews(caseDefinition, db, completedLevels = state.completedLevels) {
   if (!caseDefinition || !db || !Array.isArray(completedLevels)) return [];
 
@@ -300,21 +431,42 @@ function loadMission(levelId) {
   state.lastValidationFeedback = null;
   state.hintRequestInFlight = false;
   state.activeHintRequestToken = null;
-  // Notifica handlers que podem abortar requisições em voo
   document.dispatchEvent(new CustomEvent('mission-changed'));
   const btnNext = document.getElementById('btn-next');
   if (btnNext) btnNext.hidden = true;
 
-  const courseItems = level.courseRefs
-    ? level.courseRefs.map(ref => getCourseContentById(ref)).filter(Boolean)
-    : [];
-  renderMission(level, courseItems);
+  const courseItems = getCourseItemsForLevel(level);
+
+  renderMission(level, courseItems, state.lessonsRead);
+  setLesson(renderLessonHtml(courseItems, level));
   renderHints(level, state.hintsRevealed);
   renderProgress(activeCase.LEVELS, state.completedLevels, state.levelProgress);
-  renderEvidence(state.evidence);
+  renderEvidence(state.evidence, activeCase.LEVELS, state.completedLevels);
   renderScore(state.score, calculateTotalStars(state.levelProgress), calculateMaxStars(activeCase.getTotalLevels()));
+  renderHeaderProgress(state.completedLevels.length, activeCase.getTotalLevels());
 
-  // Renderiza timeline, medidor e interrogatório apenas se o caso tem gameplay
+  // Renderiza Rail vertical de missões
+  renderMissionRail(activeCase.LEVELS, levelId, state.completedLevels, (selectedId) => {
+    loadMission(selectedId);
+  }, state.lessonsRead);
+
+  configureSidebarTabs({
+    graph: Boolean(activeCase.GAMEPLAY?.graph),
+    timeline: Boolean(activeCase.GAMEPLAY?.timeline),
+    suspects: Boolean(activeCase.GAMEPLAY?.suspects),
+    lesson: courseItems.length > 0,
+  });
+
+  const primaryItem = courseItems[0];
+  const isLessonRead = primaryItem ? state.lessonsRead.includes(primaryItem.id) : true;
+  if (primaryItem && !state.completedLevels.includes(levelId) && !isLessonRead) {
+    activateSidebarTab('lesson');
+  }
+
+  // Atualiza estado de leitura da aula atual
+  updateLessonTabBadge(!isLessonRead);
+
+  // Timeline
   if (activeCase.GAMEPLAY?.timeline) {
     state.timelineOrder = normalizeOrder(activeCase.GAMEPLAY.timeline, state.completedLevels, state.timelineOrder);
     renderTimeline(activeCase.GAMEPLAY.timeline, state.completedLevels, state.timelineOrder);
@@ -322,13 +474,14 @@ function loadMission(levelId) {
     renderTimeline(null, state.completedLevels, []);
   }
 
+  // Suspeitos
   if (activeCase.GAMEPLAY?.suspects) {
     renderSuspectMeter(activeCase.GAMEPLAY.suspects, state.completedLevels);
   } else {
     renderSuspectMeter(null, state.completedLevels);
   }
 
-  // Renderiza grafo investigativo, se disponível
+  // Grafo de rede
   if (activeCase.GAMEPLAY?.graph) {
     const suspicion = deriveSuspicion(activeCase.GAMEPLAY.suspects, state.completedLevels);
     renderGraph(activeCase.GAMEPLAY.graph, state.completedLevels, state.evidence, suspicion);
@@ -336,9 +489,8 @@ function loadMission(levelId) {
     renderGraph(null, state.completedLevels, state.evidence, 0);
   }
 
-  // Botão "Iniciar interrogatório" para saves com todas as missões concluídas mas interrogatório pendente
+  // Interrogatório
   if (activeCase.GAMEPLAY?.finalChallenge) {
-    const fc = activeCase.GAMEPLAY.finalChallenge;
     const allDone = state.completedLevels.length >= activeCase.getTotalLevels();
     const interrogationPending = state.interrogation.status !== 'won';
     showStartInterrogationButton(allDone && interrogationPending);
@@ -349,6 +501,7 @@ function loadMission(levelId) {
   enableHintButton(true);
   setHintButtonLoading(false);
   setMissionStatus(`Missão ${levelId}: ${level.title}`);
+
   const editorHelp = document.getElementById('editor-help');
   if (editorHelp) {
     editorHelp.textContent = level.executionMode === 'create_view'
@@ -356,15 +509,12 @@ function loadMission(levelId) {
       : 'Use SELECT ou WITH para consultar o banco.';
   }
   setEditorValue('');
-  setResults('<p class="placeholder-text">Escreva sua query e clique em Executar.</p>');
+  setResults('<p class="placeholder-text">Aguardando consulta. Escreva sua query e execute.</p>');
   renderFromState();
 
   persistState();
 }
 
-/**
- * Restaura o progresso salvo do localStorage para o estado.
- */
 function restoreProgress() {
   const saved = loadState();
   state.progressByCase = saved.progressByCase || { case001: saved };
@@ -379,28 +529,66 @@ async function init() {
     initDOM();
     initBasicEvents();
     initTabs();
+    initSidebarTabs();
+    initLobbyTabs();
 
     restoreProgress();
     configureIntro(getActiveCase());
     showCaseSelection();
     hideLoading();
 
-    // Placeholders
-    setEvidence('<p class="placeholder-text">Nenhuma evidência coletada ainda.</p>');
+    renderEvidence(state.evidence, getActiveCase().LEVELS, state.completedLevels);
 
-    if (window.innerWidth <= 640) {
-      showTabs();
-      activatePanel('briefing');
-    }
-
-    window.addEventListener('resize', () => {
+    const syncResponsiveNavigation = () => {
       if (window.innerWidth <= 640) {
         showTabs();
         if (!document.querySelector('.panel.active')) activatePanel('briefing');
+      } else {
+        hideTabs();
       }
+    };
+    syncResponsiveNavigation();
+    window.addEventListener('resize', syncResponsiveNavigation);
+
+    document.addEventListener('click', (event) => {
+      const trigger = event.target?.closest?.('[data-open-course-lesson]');
+      if (trigger) showCourseLesson(trigger.dataset.openCourseLesson);
     });
 
-    // Inicializa SFX no primeiro gesto do usuário (Web Audio requer interação)
+    // Registro de progresso de leitura da aula
+    const markActiveLessonAsRead = () => {
+      const activeCase = getActiveCase();
+      const activeLevel = activeCase?.LEVELS?.find(l => l.id === state.currentLevel);
+      const primaryRef = activeLevel?.courseRefs?.[0];
+      const displayedLesson = document.querySelector('#lesson-display .lesson');
+      const lessonId = displayedLesson?.dataset?.lessonId || primaryRef;
+      if (lessonId && !state.lessonsRead.includes(lessonId)) {
+        state.lessonsRead.push(lessonId);
+        syncActiveCaseProgress();
+        persistState();
+        updateLessonTabBadge(false);
+        const courseItems = getCourseItemsForLevel(activeLevel);
+        renderMission(activeLevel, courseItems, state.lessonsRead);
+        renderMissionRail(activeCase.LEVELS, state.currentLevel, state.completedLevels, (selectedId) => {
+          loadMission(selectedId);
+        }, state.lessonsRead);
+      }
+    };
+
+    const lessonPane = document.getElementById('sidebar-pane-lesson');
+    if (lessonPane) {
+      lessonPane.addEventListener('scroll', () => {
+        if (lessonPane.scrollTop + lessonPane.clientHeight >= lessonPane.scrollHeight - 40) {
+          markActiveLessonAsRead();
+        }
+      });
+      lessonPane.addEventListener('toggle', (e) => {
+        if (e.target && e.target.tagName === 'DETAILS' && e.target.open) {
+          markActiveLessonAsRead();
+        }
+      }, true);
+    }
+
     const initAudioOnGesture = () => {
       initSfx(window);
       updateSoundButtonIcon();
@@ -423,6 +611,14 @@ async function init() {
       });
     }
 
+    const btnIntroBack = document.getElementById('btn-intro-back');
+    if (btnIntroBack) {
+      btnIntroBack.addEventListener('click', () => {
+        hideIntroScreen();
+        showCaseSelection();
+      });
+    }
+
     const btnAnalysisStart = document.getElementById('btn-analysis-start');
     if (btnAnalysisStart) {
       btnAnalysisStart.addEventListener('click', async () => {
@@ -431,11 +627,20 @@ async function init() {
       });
     }
 
-    // Botão fechar modal de conclusão
     const btnConclusionClose = document.getElementById('btn-conclusion-close');
     if (btnConclusionClose) {
       btnConclusionClose.addEventListener('click', () => {
         hideConclusionModal();
+        showCaseSelection();
+      });
+    }
+
+    const btnConclusionSandbox = document.getElementById('btn-conclusion-sandbox');
+    if (btnConclusionSandbox) {
+      btnConclusionSandbox.addEventListener('click', () => {
+        hideConclusionModal();
+        const btnSandbox = document.getElementById('btn-sandbox');
+        if (btnSandbox) btnSandbox.click();
       });
     }
 
@@ -456,8 +661,7 @@ async function startGame(caseId = state.currentCase) {
       console.log(`Progresso restaurado: ${state.completedLevels.length} missões concluídas, ${state.score} pontos.`);
     }
 
-    // Carrega o banco
-    setDbStatus('pending', 'Banco: carregando…');
+    setDbStatus('pending', '● BANCO: CARREGANDO…');
     await initDB(state.currentCase, { force: true });
 
     const db = getDB();
@@ -466,10 +670,8 @@ async function startGame(caseId = state.currentCase) {
     const schema = getSchemaText();
     setSchema(schema);
     enableEditorButtons(true);
+    setDbStatus('ok', '● BANCO PRONTO');
 
-    console.log('Banco carregado para', state.currentCase);
-
-    // Carrega a missão atual ou a primeira não concluída
     const activeCase = getActiveCase();
     const totalLevels = activeCase.getTotalLevels();
     let levelToLoad = state.currentLevel;
@@ -496,6 +698,13 @@ async function startGame(caseId = state.currentCase) {
   }
 }
 
+function updateSoundButtonIcon() {
+  const btnSound = document.getElementById('btn-sound');
+  if (!btnSound) return;
+  btnSound.textContent = isSfxEnabled() ? '🔊' : '🔇';
+  btnSound.classList.toggle('muted', !isSfxEnabled());
+}
+
 /**
  * Registra event listeners dos botões.
  */
@@ -515,13 +724,6 @@ function initBasicEvents() {
   const errorRetry = document.getElementById('app-error-retry');
   const btnSound = document.getElementById('btn-sound');
 
-  // Botão de som
-  function updateSoundButtonIcon() {
-    if (!btnSound) return;
-    btnSound.textContent = isSfxEnabled() ? '🔊' : '🔇';
-    btnSound.classList.toggle('muted', !isSfxEnabled());
-  }
-
   if (btnSound) {
     btnSound.addEventListener('click', () => {
       initSfx(window);
@@ -534,20 +736,19 @@ function initBasicEvents() {
     btnRun.addEventListener('click', () => {
       const sql = getEditorValue();
       const db = getDB();
-      if (!db) { setResults('<div class="result-error">Banco não carregado.</div>'); return; }
+      if (!db) { setResults('<div class="feedback feedback-error">Banco não carregado.</div>'); return; }
 
-      // Modo Sandbox: executa sem validação de missão
       if (state.sandboxMode) {
         const result = executeQuery(sql, db, { allowDml: state.currentCase === 'case004' });
         renderResults(result);
         return;
       }
 
-      // Modo Missão
-      if (!state.currentLevel) { setResults('<div class="result-error">Nenhuma missão ativa.</div>'); return; }
+      if (!state.currentLevel) { setResults('<div class="feedback feedback-error">Nenhuma missão ativa.</div>'); return; }
 
       const activeCase = getActiveCase();
       const level = activeCase.getLevel(state.currentLevel);
+
       const feedback = validateLevel(sql, level, db);
 
       if (feedback.result) {
@@ -555,7 +756,6 @@ function initBasicEvents() {
       }
       renderFeedback(feedback);
 
-      // Guarda o mínimo necessário para tutoria de IA
       state.lastValidationFeedback = {
         type: feedback.type,
         message: feedback.message,
@@ -563,51 +763,49 @@ function initBasicEvents() {
         missingColumns: feedback.missingColumns || undefined,
       };
 
-      // Se correto, calcula estrelas e atualiza progresso
       if (feedback.type === FEEDBACK_CORRECT) {
         const hintsUsed = state.hintsRevealed.length;
         const stars = calculateStars(hintsUsed);
-        const score = calculateScore(stars);
 
-        // Atualiza progresso (preserva melhor)
         const result = updateLevelProgress(state.levelProgress, state.currentLevel, stars, hintsUsed);
         state.levelProgress = result.levelProgress;
 
-        // Se atualizou, recalcula score total
         if (result.updated) {
           recalculateScore();
         }
 
-        // Marca como concluído
         if (!state.completedLevels.includes(state.currentLevel)) {
           state.completedLevels.push(state.currentLevel);
         }
 
-        // Adiciona evidência
         if (!state.evidence.includes(level.evidence)) {
           state.evidence.push(level.evidence);
-          playAlertSound(); // bipe de evidência importante descoberta
+          playAlertSound();
         } else {
-          playSuccessSound(); // missão já concluída, som de triunfo ao repetir
+          playSuccessSound();
         }
 
         if (level.executionMode === 'create_view') {
-          // A view recém-criada passa a aparecer no esquema e no diagrama ER.
           setSchema(getSchemaText());
         }
 
-        // Atualiza UI
-        renderEvidence(state.evidence);
+        renderEvidence(state.evidence, activeCase.LEVELS, state.completedLevels);
         renderProgress(activeCase.LEVELS, state.completedLevels, state.levelProgress);
         renderScore(state.score, calculateTotalStars(state.levelProgress), calculateMaxStars(activeCase.getTotalLevels()));
+        renderHeaderProgress(state.completedLevels.length, activeCase.getTotalLevels());
 
-        // Re-renderiza grafo com novas evidências
+        renderMissionRail(activeCase.LEVELS, state.currentLevel, state.completedLevels, (selectedId) => {
+          loadMission(selectedId);
+        }, state.lessonsRead);
+
         if (activeCase.GAMEPLAY?.graph) {
           const suspicion = deriveSuspicion(activeCase.GAMEPLAY.suspects, state.completedLevels);
           renderGraph(activeCase.GAMEPLAY.graph, state.completedLevels, state.evidence, suspicion);
         }
+        if (activeCase.GAMEPLAY?.suspects) {
+          renderSuspectMeter(activeCase.GAMEPLAY.suspects, state.completedLevels);
+        }
 
-        // Mostra botão "Próxima missão" se houver próxima
         const nextLevel = state.currentLevel + 1;
         if (nextLevel <= activeCase.getTotalLevels()) {
           const btnNextEl = document.getElementById('btn-next');
@@ -616,10 +814,6 @@ function initBasicEvents() {
 
         persistState();
 
-        // Normaliza timeline após conclusão de missão (mantém a ordem escolhida,
-        // adiciona eventos recém-desbloqueados no fim). O bônus só é avaliado
-        // pelo botão "Verificar ordem" e apenas quando todos os eventos estão
-        // desbloqueados.
         if (activeCase.GAMEPLAY?.timeline) {
           state.timelineOrder = normalizeOrder(
             activeCase.GAMEPLAY.timeline,
@@ -630,43 +824,51 @@ function initBasicEvents() {
           persistState();
         }
 
-        // Verifica se todas as missões foram concluídas
         if (state.completedLevels.length >= activeCase.getTotalLevels()) {
-          // Caso #001 com interrogatório: inicia o confronto em vez do modal
           if (activeCase.GAMEPLAY?.finalChallenge) {
             const fc = activeCase.GAMEPLAY.finalChallenge;
             const startResult = startInterrogation(fc, state.completedLevels, state.interrogation);
             if (startResult.started) {
               state.interrogation = startResult.state;
+              showStartInterrogationButton(true);
               persistState();
-              // Abre modal de interrogatório (UI será implementada em H4)
               document.dispatchEvent(new CustomEvent('interrogation-start'));
             } else if (state.interrogation.status === 'won') {
-              // Já vencido — mostra conclusão
               const totalStars = calculateTotalStars(state.levelProgress);
               const maxStars = calculateMaxStars(activeCase.getTotalLevels());
               const conclusionBody = `
                 <p>${activeCase.CASE_CONCLUSION.story}</p>
-                <p><strong>Pontuação final:</strong> ${state.score} pontos</p>
-                <p><strong>Estrelas:</strong> ${totalStars}/${maxStars}</p>
-                <p>${activeCase.CASE_CONCLUSION.nextSteps}</p>
+                <p style="margin-top: 12px;">${activeCase.CASE_CONCLUSION.nextSteps}</p>
               `;
               setTimeout(() => {
-                showConclusionModal(activeCase.CASE_CONCLUSION.title, conclusionBody);
+                showConclusionModal(
+                  `${activeCase.CASE_INTRO.subtitle?.toUpperCase() || 'CASO #001'} · ENCERRADO`,
+                  conclusionBody,
+                  {
+                    score: state.score,
+                    stars: `${totalStars}/${maxStars}`,
+                    missions: `${state.completedLevels.length}/${activeCase.getTotalLevels()}`,
+                  }
+                );
               }, 500);
             }
           } else {
-            // Casos sem interrogatório: fluxo legado
             const totalStars = calculateTotalStars(state.levelProgress);
             const maxStars = calculateMaxStars(activeCase.getTotalLevels());
             const conclusionBody = `
               <p>${activeCase.CASE_CONCLUSION.story}</p>
-              <p><strong>Pontuação final:</strong> ${state.score} pontos</p>
-              <p><strong>Estrelas:</strong> ${totalStars}/${maxStars}</p>
-              <p>${activeCase.CASE_CONCLUSION.nextSteps}</p>
+              <p style="margin-top: 12px;">${activeCase.CASE_CONCLUSION.nextSteps}</p>
             `;
             setTimeout(() => {
-              showConclusionModal(activeCase.CASE_CONCLUSION.title, conclusionBody);
+              showConclusionModal(
+                `${activeCase.CASE_INTRO.subtitle?.toUpperCase() || 'CASO #001'} · ENCERRADO`,
+                conclusionBody,
+                {
+                  score: state.score,
+                  stars: `${totalStars}/${maxStars}`,
+                  missions: `${state.completedLevels.length}/${activeCase.getTotalLevels()}`,
+                }
+              );
             }, 500);
           }
         }
@@ -677,7 +879,7 @@ function initBasicEvents() {
   if (btnClear) {
     btnClear.addEventListener('click', () => {
       clearEditor();
-      setResults('<p class="placeholder-text">Escreva sua query e clique em Executar.</p>');
+      setResults('<p class="placeholder-text">Aguardando consulta. Escreva sua query e execute.</p>');
     });
   }
 
@@ -690,24 +892,17 @@ function initBasicEvents() {
       if (state.hintsRevealed.length >= 3) return;
 
       const hintIndex = state.hintsRevealed.length + 1;
-      // Token único para esta requisição: caso + missão + timestamp.
-      // Permite descartar respostas tardias mesmo entre trocas de caso.
-      // O token completo (com timestamp) é guardado no estado e comparado
-      // no finally — assim o finally de A não limpa a flag de B.
       const requestToken = `${state.currentCase}:${state.currentLevel}:${Date.now()}`;
       state.activeHintRequestToken = requestToken;
 
-      // Bloqueia cliques repetidos e mostra estado de carregamento
       state.hintRequestInFlight = true;
       setHintButtonLoading(true);
 
-      // Aborta se a missão/caso mudar enquanto a requisição está em voo
       const abortController = new AbortController();
       const onMissionChange = () => abortController.abort();
       document.addEventListener('mission-changed', onMissionChange, { once: true });
 
       try {
-        // Monta o contexto permitido
         const schema = getSchemaText();
         const studentSql = getEditorValue();
         const ctx = buildHintContext({
@@ -718,43 +913,36 @@ function initBasicEvents() {
           validationFeedback: state.lastValidationFeedback,
         });
 
-        // Faz a chamada same-origin
         const result = await requestAiHint(ctx, { signal: abortController.signal });
 
-        // Descarta se o token ativo mudou (troca de caso/missão ou nova dica)
         if (state.activeHintRequestToken !== requestToken) return;
 
         if (result.ok && result.hint) {
           state.hintsRevealed.push({ source: 'ollama', text: result.hint });
           renderHints(level, state.hintsRevealed);
         } else {
-          // Fallback: revela a próxima dica local
           if (state.hintsRevealed.length < level.hints.length) {
             state.hintsRevealed.push({ source: 'local', text: level.hints[state.hintsRevealed.length] });
             renderHints(level, state.hintsRevealed);
-            showHintFallbackNotice('IA indisponível — exibindo dica local.');
+            showHintFallbackNotice('IA indisponível — exibindo dica forense local.');
           }
         }
 
-        // Desabilita o botão após a terceira dica
         if (state.hintsRevealed.length >= 3) {
           enableHintButton(false);
         }
       } catch {
-        // Fallback em caso de erro inesperado
         if (state.activeHintRequestToken !== requestToken) return;
         if (state.hintsRevealed.length < level.hints.length) {
           state.hintsRevealed.push({ source: 'local', text: level.hints[state.hintsRevealed.length] });
           renderHints(level, state.hintsRevealed);
-          showHintFallbackNotice('IA indisponível — exibindo dica local.');
+          showHintFallbackNotice('IA indisponível — exibindo dica forense local.');
         }
         if (state.hintsRevealed.length >= 3) {
           enableHintButton(false);
         }
       } finally {
         document.removeEventListener('mission-changed', onMissionChange);
-        // Só limpa flag/botão se esta requisição ainda é a ativa.
-        // Se o token mudou (troca de missão ou nova dica), não tocar no estado.
         if (state.activeHintRequestToken === requestToken) {
           state.hintRequestInFlight = false;
           state.activeHintRequestToken = null;
@@ -786,16 +974,14 @@ function initBasicEvents() {
 
   if (btnResetConfirm) {
     btnResetConfirm.addEventListener('click', () => {
-      clearState();
-      resetState();
+      const activeCaseId = resetActiveCaseProgress();
       deactivateSandboxMode();
       const help = document.getElementById('editor-help');
       if (help) help.textContent = 'Use SELECT ou WITH para consultar o banco.';
       showResetConfirm(false);
-      activateCaseProgress('case001');
       configureIntro(getActiveCase());
-      startGame('case001');
-      console.log('Progresso reiniciado.');
+      startGame(activeCaseId);
+      console.log(`Progresso de ${activeCaseId} reiniciado.`);
     });
   }
 
@@ -813,7 +999,7 @@ function initBasicEvents() {
       if (state.currentCase === 'case004') {
         const help = document.getElementById('editor-help');
         if (help) help.textContent = 'No sandbox deste caso, SELECT, WITH, INSERT, UPDATE e DELETE são permitidos.';
-        setResults('<p class="placeholder-text">Use SELECT/WITH ou uma única alteração DML controlada no banco temporário deste caso.</p>');
+        setResults('<p class="placeholder-text">Use SELECT/WITH ou uma alteração DML controlada no banco temporário.</p>');
       }
     });
   }
@@ -824,7 +1010,6 @@ function initBasicEvents() {
       deactivateSandboxMode();
       const help = document.getElementById('editor-help');
       if (help) help.textContent = 'Use SELECT ou WITH para consultar o banco.';
-      // Recarrega a missão que estava ativa
       await initDB(state.currentCase, { force: true });
       restoreCompletedMissionViews(getActiveCase(), getDB());
       setSchema(getSchemaText());
@@ -848,7 +1033,6 @@ function initBasicEvents() {
     });
   }
 
-  // Ctrl+Enter no editor executa a query
   if (sqlEditor) {
     let lastTypingSound = 0;
     sqlEditor.addEventListener('keydown', (e) => {
@@ -857,11 +1041,9 @@ function initBasicEvents() {
         document.getElementById('btn-run').click();
         return;
       }
-      // Som de digitação sutil (throttle 60ms)
       const now = Date.now();
       if (now - lastTypingSound > 60 && e.key.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey) {
         lastTypingSound = now;
-        // Varia levemente a frequência para soar mais orgânico
         playTypingSound(750 + Math.random() * 150, 0.03);
       }
     });
@@ -874,7 +1056,6 @@ function initBasicEvents() {
     });
   }
 
-  // --- Diagrama ER (Fase 9) ---
   const btnER = document.getElementById('btn-er');
   const btnERClose = document.getElementById('btn-er-close');
   const erModal = document.getElementById('er-modal');
@@ -885,26 +1066,29 @@ function initBasicEvents() {
       if (erContent) {
         renderERDiagram(erContent);
       }
-      if (erModal) erModal.hidden = false;
+      if (erModal) {
+        erModal.hidden = false;
+        btnERClose?.focus();
+      }
     });
   }
 
   if (btnERClose) {
     btnERClose.addEventListener('click', () => {
       if (erModal) erModal.hidden = true;
+      btnER?.focus();
     });
   }
 
-  // Fechar modal ER clicando no overlay
   if (erModal) {
     erModal.addEventListener('click', (e) => {
-      if (e.target === erModal) erModal.hidden = true;
+      if (e.target === erModal) {
+        erModal.hidden = true;
+        btnER?.focus();
+      }
     });
   }
 
-  // --- Gameplay: timeline, medidor, interrogatório ---
-
-  // Delega cliques dos botões de mover da timeline
   document.addEventListener('click', (e) => {
     const btn = e.target.closest('.btn-timeline-move');
     if (!btn) return;
@@ -917,14 +1101,12 @@ function initBasicEvents() {
     persistState();
   });
 
-  // Botão verificar ordem da timeline
   const btnTimelineCheck = document.getElementById('btn-timeline-check');
   if (btnTimelineCheck) {
     btnTimelineCheck.addEventListener('click', () => {
       const activeCase = getActiveCase();
       if (!activeCase.GAMEPLAY?.timeline) return;
 
-      // Só permite verificação quando todos os eventos da timeline estão desbloqueados
       const unlockedEvents = getUnlockedEvents(activeCase.GAMEPLAY.timeline, state.completedLevels);
       const allEventsUnlocked = unlockedEvents.length === activeCase.GAMEPLAY.timeline.events.length;
       if (!allEventsUnlocked) {
@@ -944,16 +1126,15 @@ function initBasicEvents() {
         recalculateScore();
         renderScore(state.score, calculateTotalStars(state.levelProgress), calculateMaxStars(activeCase.getTotalLevels()));
         persistState();
-        setResults(`<p class="placeholder-text" style="color: var(--color-success)">${escapeHtml(bonusResult.message)}</p>`);
+        setResults(`<p class="placeholder-text" style="color: var(--status-success-light)">${escapeHtml(bonusResult.message)}</p>`);
       } else if (bonusResult.allCorrect) {
-        setResults('<p class="placeholder-text">Bônus já concedido. Ordem correta!</p>');
+        setResults('<p class="placeholder-text">Bônus já concedido. Ordem cronológica correta!</p>');
       } else {
-        setResults('<p class="placeholder-text" style="color: var(--color-warning)">Ordem incorreta. Tente novamente.</p>');
+        setResults('<p class="placeholder-text" style="color: var(--status-warning)">Ordem incorreta. Revise as datas e tente novamente.</p>');
       }
     });
   }
 
-  // Listener para evento de início de interrogatório
   document.addEventListener('interrogation-start', () => {
     const activeCase = getActiveCase();
     if (!activeCase.GAMEPLAY?.finalChallenge) return;
@@ -962,7 +1143,6 @@ function initBasicEvents() {
     showInterrogationModal(fc, state.interrogation, unlockedEvidences);
   });
 
-  // Delega cliques nos botões de evidência do interrogatório
   document.addEventListener('click', (e) => {
     const btn = e.target.closest('.interrogation-evidence-btn');
     if (!btn) return;
@@ -975,47 +1155,57 @@ function initBasicEvents() {
     persistState();
 
     if (result.accepted) {
-      setInterrogationFeedback(result.message || 'Evidência aceita.', true);
       if (result.completed) {
-        // Interrogatório vencido — fecha modal e mostra conclusão
+        showStartInterrogationButton(false);
+        setInterrogationFeedback(result.message || 'Evidência aceita.', true);
         setTimeout(() => {
           hideInterrogationModal();
           const totalStars = calculateTotalStars(state.levelProgress);
           const maxStars = calculateMaxStars(activeCase.getTotalLevels());
           const conclusionBody = `
             <p>${activeCase.CASE_CONCLUSION.story}</p>
-            <p><strong>Pontuação final:</strong> ${state.score} pontos</p>
-            <p><strong>Estrelas:</strong> ${totalStars}/${maxStars}</p>
-            <p>${activeCase.CASE_CONCLUSION.nextSteps}</p>
+            <p style="margin-top: 12px;">${activeCase.CASE_CONCLUSION.nextSteps}</p>
           `;
-          showConclusionModal(activeCase.CASE_CONCLUSION.title, conclusionBody);
+          showConclusionModal(
+            `${activeCase.CASE_INTRO.subtitle?.toUpperCase() || 'CASO #001'} · ENCERRADO`,
+            conclusionBody,
+            {
+              score: state.score,
+              stars: `${totalStars}/${maxStars}`,
+              missions: `${state.completedLevels.length}/${activeCase.getTotalLevels()}`,
+            }
+          );
         }, 1500);
       } else {
-        // Avança para próxima etapa
         const unlockedEvidences = getUnlockedEvents(activeCase.GAMEPLAY.timeline, state.completedLevels);
         showInterrogationModal(fc, state.interrogation, unlockedEvidences);
+        setInterrogationFeedback(result.message || 'Evidência aceita.', true);
       }
     } else {
-      setInterrogationFeedback(result.message || 'Evidência incorreta.', false);
+      setInterrogationFeedback(result.message || 'Evidência incorreta. O suspeito refutou a alegação.', false);
     }
   });
 
-  // Botão fechar modal de interrogatório
   const btnInterrogationClose = document.getElementById('btn-interrogation-close');
   if (btnInterrogationClose) {
     btnInterrogationClose.addEventListener('click', () => {
       hideInterrogationModal();
+      const activeCase = getActiveCase();
+      const canResume = Boolean(
+        activeCase.GAMEPLAY?.finalChallenge
+        && state.completedLevels.length >= activeCase.getTotalLevels()
+        && state.interrogation.status !== 'won'
+      );
+      showStartInterrogationButton(canResume);
     });
   }
 
-  // Escape fecha modal de interrogatório (mas não se já venceu)
   document.addEventListener('keydown', (e) => {
     if (e.key === 'Escape' && dom_interrogationModal_visible()) {
       hideInterrogationModal();
     }
   });
 
-  // Botão "Iniciar interrogatório" para saves com 12 missões
   const btnStartInterrogation = document.getElementById('btn-start-interrogation');
   if (btnStartInterrogation) {
     btnStartInterrogation.addEventListener('click', () => {
@@ -1032,13 +1222,11 @@ function initBasicEvents() {
   }
 }
 
-/** Helper para verificar se o modal de interrogatório está visível */
 function dom_interrogationModal_visible() {
   const modal = document.getElementById('interrogation-modal');
   return modal && !modal.hidden;
 }
 
-// Ponte para testes de integração: expõe funções internas quando solicitado.
 if (typeof globalThis !== 'undefined' && globalThis.__SQL_DETECTIVE_TEST__) {
   globalThis.__SQLDetectiveApp = {
     persistState,
@@ -1050,6 +1238,8 @@ if (typeof globalThis !== 'undefined' && globalThis.__SQL_DETECTIVE_TEST__) {
     hideDatabaseAnalysis,
     recalculateScore,
     restoreCompletedMissionViews,
+    resetActiveCaseProgress,
+    showCourseLesson,
   };
 }
 
