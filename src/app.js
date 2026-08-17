@@ -7,6 +7,7 @@ import { initDB, getSchemaText, getDB, getSchemaDetailed } from './db.js';
 import { executeQuery } from './executor.js';
 import { getCaseById, isCaseAvailable, isCaseComplete, getInvestigations, getProjects } from './case-manager.js';
 import { validateLevel, FEEDBACK_CORRECT } from './validator.js';
+import { validateBugChallenge, BH_FEEDBACK_CORRECT, BH_FEEDBACK_BUG_NOT_FIXED } from './bug-hunter-validator.js';
 import { calculateStars, calculateTotalScore, calculateTotalStars, calculateMaxStars, updateLevelProgress } from './scoring.js';
 import { saveState, loadState } from './storage.js';
 import {
@@ -55,7 +56,13 @@ import {
   renderGraph,
   renderMissionRail,
   initSidebarTabs,
+  setBriefing,
   activateSidebarTab,
+  renderBugHints,
+  renderBugFeedback,
+  renderBugEvidence,
+  renderBugProgress,
+  renderBugRail,
   configureSidebarTabs,
   updateLessonTabBadge,
   setLesson,
@@ -76,6 +83,22 @@ import { initSfx, setSfxEnabled, isSfxEnabled, playTypingSound, playAlertSound, 
 
 function getActiveCase() {
   return getCaseById(state.currentCase) || getCaseById('case001');
+}
+
+/**
+ * Retorna a definição do desafio Bug Hunter ativo (desafios não são missões numeradas).
+ * @returns {object|null}
+ */
+function getActiveBugChallenge() {
+  const activeCase = getActiveCase();
+  if (activeCase.type !== 'bug-hunter') return null;
+  const challengeId = state.currentLevel;
+  return (activeCase.BUG_CHALLENGES || []).find(c => c.id === challengeId) || null;
+}
+
+/** Verifica se o cenário ativo é o modo Bug Hunter. */
+function isBugHunterMode() {
+  return getActiveCase().type === 'bug-hunter';
 }
 
 function getLockedMissionIds(caseDefinition, completedLevels = state.completedLevels) {
@@ -469,6 +492,13 @@ function loadMission(levelId) {
     const completed = new Set(state.completedLevels);
     levelId = activeCase.LEVELS.find(level => !completed.has(level.id))?.id ?? levelId;
   }
+
+  // --- Modo Bug Hunter: desafios de debug (ids de string 'bug-N') ---
+  if (activeCase.type === 'bug-hunter') {
+    loadBugChallenge(levelId);
+    return;
+  }
+
   const level = activeCase.getLevel(levelId);
   if (!level) return;
 
@@ -570,6 +600,128 @@ function loadMission(levelId) {
   renderFromState();
 
   persistState();
+}
+
+/**
+ * Carrega um desafio do modo Bug Hunter: briefing do relatório quebrado,
+ * lista de bugs, query defeituosa no editor e painel de correção.
+ * @param {string} challengeId id do desafio ('bug-1' ... 'bug-N')
+ */
+function loadBugChallenge(challengeId) {
+  const activeCase = getActiveCase();
+  const challenges = activeCase.BUG_CHALLENGES || [];
+  const challenge = challenges.find(c => c.id === challengeId) || challenges[0];
+  if (!challenge) return;
+
+  state.currentLevel = challenge.id;
+  state.hintsRevealed = [];
+  state.queryExecuted = false;
+  state.lastValidationFeedback = null;
+  state.hintRequestInFlight = false;
+  state.activeHintRequestToken = null;
+  document.dispatchEvent(new CustomEvent('mission-changed'));
+  const btnNext = document.getElementById('btn-next');
+  if (btnNext) btnNext.hidden = true;
+
+  renderBugChallenge(challenge);
+  renderBugHints(challenge, state.hintsRevealed);
+  renderBugProgress(challenges, challenge.id, state.completedLevels, state.levelProgress);
+  renderEvidence(state.evidence, challenges, state.completedLevels);
+  renderScore(state.score, calculateTotalStars(state.levelProgress), calculateMaxStars(challenges.length));
+  renderHeaderProgress(state.completedLevels.length, challenges.length);
+  renderBugEvidence(challenges, state.completedLevels);
+  renderBugRail(challenges, challenge.id, state.completedLevels, (id) => loadMission(id));
+
+  configureSidebarTabs({
+    graph: false,
+    timeline: false,
+    suspects: false,
+    lesson: false,
+  });
+
+  const completedChallenge = state.completedLevels.includes(challenge.id);
+  enableEditorButtons(!completedChallenge);
+  enableHintButton(!completedChallenge);
+  setHintButtonLoading(false);
+  setMissionStatus(`Relatório ${challenge.number}: ${challenge.title}`);
+
+  const editorHelp = document.getElementById('editor-help');
+  if (editorHelp) {
+    editorHelp.textContent = challenge.executionMode === 'ddl'
+      ? 'Aponte o gargalo e aplique a correção de performance no banco.'
+      : 'Corrija a query e execute para gerar o resultado esperado.';
+  }
+
+  // O editor inicia com a query quebrada para o jogador auditar
+  setEditorValue(challenge.buggyQuery);
+  setResults(completedChallenge
+    ? '<p class="placeholder-text">Relatório já corrigido e validado. Avance para o próximo relatório ou experimente no banco.</p>'
+    : '<p class="placeholder-text">Esta é a query quebrada. Execute para ver o erro e corrija no editor.</p>');
+
+  renderFromState();
+  persistState();
+}
+
+/**
+ * Renderiza o briefing do desafio Bug Hunter no painel esquerdo.
+ * @param {object} challenge dados do desafio
+ */
+function renderBugChallenge(challenge) {
+
+  const bugTypeClass = {
+    sintaxe: 'bug-type-syntax',
+    logica: 'bug-type-logic',
+    performance: 'bug-type-performance',
+    'logica+performance': 'bug-type-mixed',
+  }[challenge.bugType] || 'bug-type-logic';
+  const bugTypeLabel = {
+    sintaxe: 'ERRO DE SINTAXE',
+    logica: 'ERRO DE LÓGICA',
+    performance: 'GARGALO DE PERFORMANCE',
+    'logica+performance': 'ERRO + PERFORMANCE',
+  }[challenge.bugType] || 'BUG SQL';
+
+  const completed = state.completedLevels.includes(challenge.id);
+
+  let html = `
+    <div class="mission-briefing bug-hunter-briefing">
+      <div class="bug-header-row">
+        <span class="pill-badge concept-tag">${escapeHtml(challenge.concept)}</span>
+        <span class="pill-badge bug-type-badge ${bugTypeClass}">${escapeHtml(bugTypeLabel)}</span>
+      </div>
+      <h2 class="mission-title">${escapeHtml(challenge.title)}</h2>
+      <p class="mission-briefing-text">${escapeHtml(challenge.context)}</p>
+      <div class="bug-list-section">
+        <strong>BUGS CONHECIDOS A INVESTIGAR</strong>
+        <ul class="bug-list">
+          ${challenge.bugs.map((bug, idx) => `<li><span class="bug-number">#${idx + 1}</span> ${escapeHtml(bug)}</li>`).join('')}
+        </ul>
+      </div>
+      <div class="bug-query-box">
+        <div class="bug-query-topbar">
+          <span class="sql-editor-dot bug-dot"></span>
+          <span class="sql-editor-topbar-label">RELATORIO_QUEBRADO.SQL</span>
+        </div>
+        <pre class="bug-query-code"><code>${escapeHtml(challenge.buggyQuery)}</code></pre>
+      </div>
+      <div class="mission-objective">
+        <strong>MISSÃO</strong>
+        <p>${escapeHtml(challenge.objective)}</p>
+      </div>
+      <div class="mission-tables">
+        <strong>TABELAS EM ESCOPO</strong>
+        <div style="display: flex; gap: 6px; flex-wrap: wrap; margin-top: 6px;">
+          ${challenge.tables.map(t => `<code>${escapeHtml(t)}</code>`).join('')}
+        </div>
+      </div>
+  `;
+
+  if (completed) {
+    html += `<div class="mission-lesson-link"><span class="pill-badge" style="border-color: rgba(34,197,94,.4); color: #4ADE80; background: rgba(34,197,94,.08);">✓ RELATÓRIO CORRIGIDO</span></div>`;
+  }
+
+  html += '</div>';
+  setBriefing(html);
 }
 
 function restoreProgress() {
@@ -739,16 +891,28 @@ async function startGame(caseId = state.currentCase) {
     const activeCase = getActiveCase();
     const totalLevels = activeCase.getTotalLevels();
     let levelToLoad = state.currentLevel;
-    const invalidSavedLevel = !Number.isInteger(levelToLoad) || levelToLoad < 1 || levelToLoad > totalLevels;
-    if (invalidSavedLevel || (state.completedLevels.includes(levelToLoad) && levelToLoad < totalLevels)) {
-      levelToLoad = null;
-      for (let i = 1; i <= totalLevels; i++) {
-        if (!state.completedLevels.includes(i)) {
-          levelToLoad = i;
-          break;
-        }
+
+    if (isBugHunterMode()) {
+      // Desafios Bug Hunter usam ids de string ('bug-1' .. 'bug-N'), em sequência.
+      const challenges = activeCase.BUG_CHALLENGES || [];
+      const completed = new Set(state.completedLevels);
+      const firstIncomplete = challenges.find(challenge => !completed.has(challenge.id));
+      const savedChallenge = challenges.find(challenge => challenge.id === levelToLoad);
+      if (!savedChallenge || completed.has(savedChallenge.id) || !firstIncomplete) {
+        levelToLoad = (firstIncomplete || challenges[challenges.length - 1]).id;
       }
-      if (!levelToLoad) levelToLoad = totalLevels;
+    } else {
+      const invalidSavedLevel = !Number.isInteger(levelToLoad) || levelToLoad < 1 || levelToLoad > totalLevels;
+      if (invalidSavedLevel || (state.completedLevels.includes(levelToLoad) && levelToLoad < totalLevels)) {
+        levelToLoad = null;
+        for (let i = 1; i <= totalLevels; i++) {
+          if (!state.completedLevels.includes(i)) {
+            levelToLoad = i;
+            break;
+          }
+        }
+        if (!levelToLoad) levelToLoad = totalLevels;
+      }
     }
     loadMission(levelToLoad);
 
@@ -815,6 +979,79 @@ function initBasicEvents() {
       if (!state.currentLevel) { setResults('<div class="feedback feedback-error">Nenhuma missão ativa.</div>'); return; }
 
       const activeCase = getActiveCase();
+
+      // --- Modo Bug Hunter: validação de correção de bugs ---
+      if (isBugHunterMode()) {
+        const challenge = getActiveBugChallenge();
+        if (!challenge) { setResults('<div class="feedback feedback-error">Nenhum desafio ativo.</div>'); return; }
+
+        const feedback = validateBugChallenge(sql, challenge, db);
+
+        if (feedback.result) {
+          renderResults(feedback.result);
+        }
+        renderBugFeedback(feedback);
+
+        state.lastValidationFeedback = {
+          type: feedback.type,
+          message: feedback.message,
+          missingConcepts: feedback.missingConcepts || undefined,
+          missingColumns: feedback.missingColumns || undefined,
+        };
+
+        if (feedback.type === BH_FEEDBACK_CORRECT) {
+          const hintsUsed = state.hintsRevealed.length;
+          const stars = calculateStars(hintsUsed);
+
+          const result = updateLevelProgress(state.levelProgress, state.currentLevel, stars, hintsUsed);
+          state.levelProgress = result.levelProgress;
+          if (result.updated) recalculateScore();
+
+          if (!state.completedLevels.includes(state.currentLevel)) {
+            state.completedLevels.push(state.currentLevel);
+          }
+
+          if (!state.evidence.includes(challenge.evidence)) {
+            state.evidence.push(challenge.evidence);
+            playAlertSound();
+          } else {
+            playSuccessSound();
+          }
+
+          if (challenge.executionMode === 'ddl' && /^\s*CREATE\b/i.test(sql)) {
+            setSchema(getSchemaText());
+          }
+
+          renderBugEvidence(activeCase.BUG_CHALLENGES, state.completedLevels);
+          renderBugProgress(activeCase.BUG_CHALLENGES, challenge.id, state.completedLevels, state.levelProgress);
+          renderScore(state.score, calculateTotalStars(state.levelProgress), calculateMaxStars(activeCase.BUG_CHALLENGES.length));
+          renderHeaderProgress(state.completedLevels.length, activeCase.BUG_CHALLENGES.length);
+          renderBugRail(activeCase.BUG_CHALLENGES, state.currentLevel, state.completedLevels, (id) => loadMission(id));
+
+          if (challenge.executionMode === 'ddl') {
+            enableEditorButtons(false);
+            const currentEditorHelp = document.getElementById('editor-help');
+            if (currentEditorHelp) currentEditorHelp.textContent = 'Correção aplicada e validada. Avance para o próximo relatório.';
+          }
+
+          const nextChallenge = (activeCase.BUG_CHALLENGES || [])
+            .find(ch => ch.number === challenge.number + 1);
+          if (nextChallenge && !state.completedLevels.includes(nextChallenge.id)) {
+            const btnNextEl = document.getElementById('btn-next');
+            if (btnNextEl) btnNextEl.hidden = false;
+          }
+
+          persistState();
+
+          if (state.completedLevels.length >= (activeCase.BUG_CHALLENGES || []).length) {
+            state.completedAt = state.completedAt || new Date().toISOString();
+            persistState();
+            setTimeout(() => showActiveCaseConclusion(activeCase), 500);
+          }
+        }
+        return;
+      }
+
       const level = activeCase.getLevel(state.currentLevel);
 
       const feedback = validateLevel(sql, level, db);
@@ -936,9 +1173,26 @@ function initBasicEvents() {
   if (btnHint) {
     btnHint.addEventListener('click', async () => {
       if (!state.currentLevel) return;
-      const level = getActiveCase().getLevel(state.currentLevel);
-      if (!level) return;
       if (state.hintRequestInFlight) return;
+      const activeCase = getActiveCase();
+
+      // --- Modo Bug Hunter: revelação progressiva dos bugs (sem IA) ---
+      if (isBugHunterMode()) {
+        const challenge = getActiveBugChallenge();
+        if (!challenge) return;
+        const availableHints = challenge.hints || challenge.hintBugs || [];
+        if (state.hintsRevealed.length >= availableHints.length) return;
+        state.hintsRevealed.push({ source: 'local', text: availableHints[state.hintsRevealed.length] });
+        renderBugHints(challenge, state.hintsRevealed);
+        if (state.hintsRevealed.length >= availableHints.length) {
+          enableHintButton(false);
+        }
+        persistState();
+        return;
+      }
+
+      const level = activeCase.getLevel(state.currentLevel);
+      if (!level) return;
       if (state.hintsRevealed.length >= 3) return;
 
       const hintIndex = state.hintsRevealed.length + 1;
@@ -1007,8 +1261,20 @@ function initBasicEvents() {
 
   if (btnNext) {
     btnNext.addEventListener('click', () => {
+      const activeCase = getActiveCase();
+      if (isBugHunterMode()) {
+        const challenge = getActiveBugChallenge();
+        if (!challenge) return;
+        const nextChallenge = (activeCase.BUG_CHALLENGES || []).find(ch => ch.number === challenge.number + 1);
+        if (nextChallenge && !state.completedLevels.includes(nextChallenge.id)) {
+          loadMission(nextChallenge.id);
+          const btnNextEl = document.getElementById('btn-next');
+          if (btnNextEl) btnNextEl.hidden = true;
+        }
+        return;
+      }
       const nextLevel = state.currentLevel + 1;
-      if (nextLevel <= getActiveCase().getTotalLevels()) {
+      if (nextLevel <= activeCase.getTotalLevels()) {
         loadMission(nextLevel);
         const btnNextEl = document.getElementById('btn-next');
         if (btnNextEl) btnNextEl.hidden = true;

@@ -248,6 +248,8 @@ function getCaseDatabaseDefinition(caseId) {
     'proj-futebol': { schema: PROJ_FUTEBOL_SCHEMA_SQL, seed: PROJ_FUTEBOL_SEED_SQL },
     case005: { schema: CASE005_SCHEMA_SQL, seed: CASE005_SEED_SQL },
     case006: { schema: CASE006_SCHEMA_SQL, seed: CASE006_SEED_SQL },
+    // O modo Bug Hunter reutiliza o banco do Caso #001 (TechFin) para os desafios de debug.
+    'bug-hunter': { schema: SCHEMA_SQL, seed: SEED_SQL },
   };
   return definitions[caseId] || definitions.case001;
 }

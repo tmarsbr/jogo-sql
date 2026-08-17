@@ -30,6 +30,11 @@ const projFinanceiroLevels = loadCaseModule('cases/proj-financeiro/levels.js');
 const projSuporteLevels = loadCaseModule('cases/proj-suporte/levels.js');
 const projPublicoLevels = loadCaseModule('cases/proj-publico/levels.js');
 const projFutebolLevels = loadCaseModule('cases/proj-futebol/levels.js');
+const bugHunterLevels = {
+  BUG_HUNTER_INTRO: { title: 'Bug Hunter', story: 'Corrija os relatórios quebrados.' },
+  BUG_HUNTER_CONCLUSION: { title: 'Modo concluído' },
+  BUG_CHALLENGES: [],
+};
 const managerCode = `
 const case001Levels = __case001Levels;
 const case002Levels = __case002Levels;
@@ -37,6 +42,7 @@ const case003Levels = __case003Levels;
 const case004Levels = __case004Levels;
 const case005Levels = __case005Levels;
 const case006Levels = __case006Levels;
+const bugHunterLevels = __bugHunterLevels;
 const projEcommerceLevels = __projEcommerceLevels;
 const projClientesLevels = __projClientesLevels;
 const projVendasLevels = __projVendasLevels;
@@ -69,13 +75,20 @@ const manager = evalModule(managerCode, {
   __projSuporteLevels: projSuporteLevels,
   __projPublicoLevels: projPublicoLevels,
   __projFutebolLevels: projFutebolLevels,
+  __bugHunterLevels: bugHunterLevels,
 }, 'case-manager.js');
 
 console.log('\n=== Case Manager ===');
 const allCases = manager.getAllCases();
-assert(allCases.length === 18, 'Registry contém dezoito cenários no total (6 investigações + 12 projetos)');
-assert(allCases.every(item => item.DATABASE_ANALYSIS), 'Todos os casos expõem a Etapa 0 de análise do banco');
-assert(manager.getInvestigations().length === 6, 'getInvestigations retorna 6 casos investigativos');
+assert(allCases.length === 19, 'Registry contém dezenove cenários no total (6 investigações + 12 projetos + Bug Hunter)');
+assert(
+  allCases.filter(item => item.id !== 'bug-hunter').every(item => item.DATABASE_ANALYSIS),
+  'Todos os casos (exceto Bug Hunter) expõem a Etapa 0 de análise do banco',
+);
+assert(
+  manager.getInvestigations().length === 7 && manager.getInvestigations().some(item => item.id === 'bug-hunter'),
+  'getInvestigations retorna 7 itens investigativos incluindo o Modo Bug Hunter',
+);
 assert(manager.getProjects().length === 12, 'getProjects retorna 12 projetos de análise de dados');
 assert(manager.getCaseById('case005').number === '005' && manager.getCaseById('case006').number === '006', 'Novos casos mantêm numeração investigativa com três dígitos');
 const case001Entities = manager.getCaseById('case001').DATABASE_ANALYSIS.entities.map(item => item.name);

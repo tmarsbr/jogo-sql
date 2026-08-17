@@ -20,6 +20,7 @@ const KNOWN_CASE_IDS = new Set([
   'proj-futebol',
   'case005',
   'case006',
+  'bug-hunter',
 ]);
 
 function getDefaultCaseProgress() {
@@ -36,7 +37,8 @@ function getDefaultCaseProgress() {
 
 export function getDefaultState() {
   const case001 = getDefaultCaseProgress();
-  return { currentCase: 'case001', progressByCase: { case001 }, ...case001 };
+  const bugHunter = getDefaultCaseProgress();
+  return { currentCase: 'case001', progressByCase: { case001, 'bug-hunter': bugHunter }, ...case001 };
 }
 
 function isLocalStorageAvailable() {

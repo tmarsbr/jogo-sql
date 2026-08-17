@@ -545,6 +545,63 @@ export function renderEvidence(evidenceOrLevels, allLevels = null, completedLeve
   dom.evidenceDisplay.innerHTML = html;
 }
 
+/**
+ * Renderiza as evidências do modo Bug Hunter.
+ * Diferente das missões comuns, cada relatório tem sua evidência de lição;
+ * apenas os desafios já corrigidos são desclassificados (completos) e o restante
+ * aparece em prévia borrada (classified), revelando os próximos N itens para
+ * não esconder a existência dos relatórios restantes.
+ * @param {object[]} challenges lista de desafios BUG_CHALLENGES
+ * @param {string[]} completedLevelIds ids concluídos
+ */
+export function renderBugEvidence(challenges, completedLevelIds) {
+  if (!dom.evidenceDisplay) return;
+  if (!challenges || challenges.length === 0) {
+    dom.evidenceDisplay.innerHTML = '<p class="placeholder-text">Nenhuma evidência coletada ainda.</p>';
+    return;
+  }
+
+  const completedSet = new Set(completedLevelIds);
+  // Prévia: mostra os desafios concluídos + um número inicial (preview) para
+  // dar visibilidade da existência dos relatórios restantes sem revelar o conteúdo.
+  const previewCount = Math.max(
+    completedLevelIds.length + 1,
+    Math.min(3, challenges.length)
+  );
+  const visibleSet = new Set();
+  challenges.forEach((ch, idx) => {
+    if (completedSet.has(ch.id) || idx < previewCount) visibleSet.add(ch.id);
+  });
+
+  let html = '';
+  for (const ch of challenges.filter(item => visibleSet.has(item.id))) {
+    const isUnlocked = completedSet.has(ch.id);
+    const numStr = String(ch.number).padStart(2, '0');
+    if (isUnlocked) {
+      html += `
+        <div class="evidence-card unlocked">
+          <div class="evidence-card-header">
+            <span class="evidence-num">EVIDÊNCIA BH-${numStr}</span>
+            <span class="pill-badge" style="border-color: rgba(34,197,94,.4); color: #4ADE80; background: rgba(34,197,94,.08);">✓ DESCLASSIFICADO</span>
+          </div>
+          <p class="evidence-text">${escapeHtml(ch.evidence)}</p>
+        </div>
+      `;
+    } else {
+      html += `
+        <div class="evidence-card locked">
+          <div class="evidence-card-header">
+            <span class="evidence-num">EVIDÊNCIA BH-${numStr}</span>
+            <span class="pill-badge" style="border-color: rgba(239,68,68,.35); color: #FF6B7F; background: rgba(239,68,68,.07);">CLASSIFICADO</span>
+          </div>
+          <p class="evidence-text" style="filter: blur(4px); user-select: none;">${escapeHtml(ch.evidence)}</p>
+        </div>
+      `;
+    }
+  }
+  dom.evidenceDisplay.innerHTML = html;
+}
+
 export function enableHintButton(enabled) {
   if (dom.btnHint) dom.btnHint.disabled = !enabled;
 }
@@ -559,6 +616,173 @@ export function setHintButtonLoading(loading) {
     dom.btnHint.textContent = remaining > 0
       ? `SOLICITAR DICA (${remaining} RESTANTES)`
       : 'LIMITE DE DICAS ATINGIDO';
+  }
+}
+
+/* --- UI do Modo Bug Hunter --- */
+
+/** Atualiza o rótulo do botão de dica para o fluxo de revelação de bugs. */
+export function setHintButtonBugMode(revealedCount, maxHints) {
+  if (!dom.btnHint) return;
+  const remaining = Math.max(0, maxHints - revealedCount);
+  dom.btnHint.textContent = remaining > 0
+    ? `REVELAR BUG (${remaining} RESTANTES)`
+    : 'TODOS OS BUGS REVELADOS';
+}
+
+/**
+ * Renderiza as dicas (revelação progressiva dos bugs) de um desafio Bug Hunter.
+ * No modo Bug Hunter as dicas expõem os bugs um a um (hintBugs do desafio).
+ * @param {object} challenge dados do desafio
+ * @param {object[]} revealed dicas já reveladas
+ */
+export function renderBugHints(challenge, revealed) {
+  if (!dom.hintsDisplay) return;
+  const hints = challenge.hints || challenge.hintBugs || [];
+  if (revealed.length === 0) {
+    dom.hintsDisplay.innerHTML = '<p class="placeholder-text">Clique em "Revelar bug" para expor um bug de cada vez — a pontuação desce a cada revelação.</p>';
+    setHintButtonBugMode(0, hints.length);
+    return;
+  }
+  let html = '';
+  for (let i = 0; i < revealed.length; i++) {
+    const item = revealed[i];
+    const isObj = typeof item === 'object' && item !== null;
+    const text = isObj ? item.text : item;
+    const source = isObj ? item.source : 'local';
+    const label = source === 'ollama' ? 'IA FORENSE' : 'BASE LOCAL';
+    html += `
+      <div class="hint-item">
+        <strong>DICA ${i + 1} · ${escapeHtml(label)}</strong>
+        <span>${escapeHtml(text)}</span>
+      </div>
+    `;
+  }
+  dom.hintsDisplay.innerHTML = html;
+  setHintButtonBugMode(revealed.length, hints.length);
+}
+
+/**
+ * Renderiza o feedback da validação de um desafio Bug Hunter.
+ * @param {object} feedback resultado do validateBugChallenge
+ */
+export function renderBugFeedback(feedback) {
+  let cls = 'feedback';
+  let label = '';
+
+  switch (feedback.type) {
+    case 'correct':
+      cls = 'feedback feedback-success';
+      label = '✓ BUG CORRIGIDO.';
+      break;
+    case 'bug_not_fixed':
+      cls = 'feedback feedback-warn';
+      label = '🐛 BUG NÃO CORRIGIDO.';
+      break;
+    case 'wrong_result':
+      cls = 'feedback feedback-warn';
+      label = '✕ RESULTADO INCORRETO.';
+      break;
+    case 'wrong_columns':
+      cls = 'feedback feedback-warn';
+      label = '⚠ COLUNAS AUSENTES OU EXTRA.';
+      break;
+    case 'missing_concept':
+      cls = 'feedback feedback-warn';
+      label = '⚠ CONCEITO AUSENTE.';
+      break;
+    case 'sql_error':
+      cls = 'feedback feedback-error';
+      label = '⚠ ERRO DE SQL.';
+      break;
+    case 'blocked':
+      cls = 'feedback feedback-error';
+      label = '⛔ COMANDO BLOQUEADO.';
+      break;
+  }
+
+  const container = dom.resultsContainer;
+  if (container) {
+    const existing = container.querySelector('.feedback');
+    if (existing) existing.remove();
+
+    const div = document.createElement('div');
+    div.className = cls;
+    div.innerHTML = `<strong style="font-family: var(--font-mono); letter-spacing: .06em;">${label}</strong> ${escapeHtml(feedback.message)}`;
+    container.appendChild(div);
+  }
+}
+
+/**
+ * Renderiza o progresso (lista de relatórios corrigidos) do modo Bug Hunter.
+ * @param {object[]} challenges todos os desafios
+ * @param {string} [currentId] id do desafio ativo
+ * @param {number[]} completedLevels ids concluídos
+ * @param {object} [levelProgress] progresso com estrelas por desafio
+ */
+export function renderBugProgress(challenges, currentId, completedLevels, levelProgress = {}) {
+  if (!dom.progressDisplay) return;
+  let html = '<div class="progress-list">';
+  for (const challenge of challenges) {
+    const done = completedLevels.includes(challenge.id);
+    const active = challenge.id === currentId;
+    const cls = done ? 'progress-item completed' : active ? 'progress-item active' : 'progress-item';
+    const icon = done ? '✅' : active ? '🔍' : '⬛';
+
+    let starsHtml = '';
+    if (done && levelProgress[challenge.id]) {
+      const stars = levelProgress[challenge.id].stars;
+      for (let i = 0; i < 3; i++) {
+        starsHtml += i < stars ? '★' : '☆';
+      }
+      starsHtml = `<span class="progress-stars">${starsHtml}</span>`;
+    }
+
+    const bugTypeTag = {
+      sintaxe: 'BUG · SINTAXE',
+      logica: 'BUG · LÓGICA',
+      performance: 'PERFORMANCE',
+      'logica+performance': 'BUG + PERFORMANCE',
+    }[challenge.bugType] || 'BUG SQL';
+
+    html += `<div class="${cls}">${icon} <span class="progress-label">Relatório ${challenge.number}: ${escapeHtml(challenge.title)}</span>${starsHtml} <span class="progress-bug-tag">${escapeHtml(bugTypeTag)}</span></div>`;
+  }
+  html += '</div>';
+  html += `<p class="progress-summary">${completedLevels.length} de ${challenges.length} relatórios corrigidos</p>`;
+  dom.progressDisplay.innerHTML = html;
+}
+
+/**
+ * Renderiza o rail vertical de relatórios do modo Bug Hunter.
+ * @param {object[]} challenges todos os desafios
+ * @param {string} currentId id do desafio ativo
+ * @param {number[]} completedLevels ids concluídos
+ * @param {function(string): void} [onSelect] callback ao clicar em um relatório
+ */
+export function renderBugRail(challenges, currentId, completedLevels, onSelect) {
+  const rail = document.getElementById('rail-buttons-container');
+  if (!rail) return;
+  rail.innerHTML = challenges
+    .map(challenge => {
+      const done = completedLevels.includes(challenge.id);
+      const active = challenge.id === currentId;
+      const cls = [
+        'rail-mission-btn',
+        active ? 'rail-mission-btn-active' : '',
+        done ? 'rail-mission-btn-done' : '',
+      ].filter(Boolean).join(' ');
+      const prefix = done ? '✅' : `#${String(challenge.number).padStart(2, '0')}`;
+      return `
+        <button type="button" class="${cls}" title="Relatório ${challenge.number}: ${escapeHtml(challenge.title)}" data-bh-id="${escapeHtml(challenge.id)}">
+          <span>${prefix} ${escapeHtml(challenge.title)}</span>
+        </button>
+      `;
+    })
+    .join('');
+  if (typeof onSelect === 'function') {
+    rail.querySelectorAll('[data-bh-id]').forEach(btn => {
+      btn.addEventListener('click', () => onSelect(btn.dataset.bhId));
+    });
   }
 }
 

@@ -20,6 +20,7 @@ import * as projPublicoLevels from './cases/proj-publico/levels.js';
 import * as projFutebolLevels from './cases/proj-futebol/levels.js';
 import * as case005Levels from './cases/case005/levels.js';
 import * as case006Levels from './cases/case006/levels.js';
+import * as bugHunterLevels from './cases/bug-hunter.js';
 
 export const CASE_REGISTRY = [
   {
@@ -130,12 +131,24 @@ export const CASE_REGISTRY = [
     description: 'Construa o Data Warehouse completo: limpe dados sujos, monte o ETL, crie o star schema e entregue relatórios para o CFO.',
     ...case006Levels,
   },
+  {
+    id: 'bug-hunter', number: 'BH', icon: '🐛', lockedByDefault: false, type: 'bug-hunter',
+    title: 'Modo Bug Hunter: Caçador de Bugs SQL', category: 'Debugging',
+    description: 'Corrija queries quebradas com erros de sintaxe, lógica e performance. Treine debugging forense no dia a dia real.',
+    CASE_INTRO: {
+      title: bugHunterLevels.BUG_HUNTER_INTRO.title,
+      subtitle: bugHunterLevels.BUG_HUNTER_INTRO.subtitle,
+      story: bugHunterLevels.BUG_HUNTER_INTRO.story,
+    },
+    CASE_CONCLUSION: bugHunterLevels.BUG_HUNTER_CONCLUSION,
+    ...bugHunterLevels,
+  },
 ];
 
 export function getAllCases() { return CASE_REGISTRY; }
 
 export function getInvestigations() {
-  return CASE_REGISTRY.filter(item => item.type === 'investigation' || !item.type);
+  return CASE_REGISTRY.filter(item => item.type === 'investigation' || !item.type || item.type === 'bug-hunter');
 }
 
 export function getProjects() {
@@ -149,6 +162,13 @@ export function getCaseById(id) {
 export function isCaseComplete(caseDefinition, progressByCase = {}) {
   const progress = progressByCase[caseDefinition.id];
   if (!progress || !Array.isArray(progress.completedLevels)) return false;
+
+  // Modo Bug Hunter: conclui quando todos os desafios de bug foram corrigidos.
+  if (caseDefinition.type === 'bug-hunter') {
+    const completed = new Set(progress.completedLevels);
+    return (caseDefinition.BUG_CHALLENGES || []).every(challenge => completed.has(challenge.id));
+  }
+
   const completed = new Set(progress.completedLevels);
   const allLevelsDone = caseDefinition.LEVELS.every(level => completed.has(level.id));
 
@@ -162,7 +182,7 @@ export function isCaseComplete(caseDefinition, progressByCase = {}) {
 }
 
 export function getAvailableCases(progressByCase = {}) {
-  const investigations = getInvestigations();
+  const investigations = getInvestigations().filter(item => item.id !== 'bug-hunter');
   const availableInvestigations = investigations.filter((caseDefinition, index) => {
     if (index === 0) return true;
     return isCaseComplete(investigations[index - 1], progressByCase);
@@ -171,7 +191,11 @@ export function getAvailableCases(progressByCase = {}) {
   const projects = getProjects();
   const availableProjects = projects.filter(project => !project.lockedByDefault);
 
-  return [...availableInvestigations, ...availableProjects];
+  // Modos especiais (ex.: bug-hunter) desbloqueiam por disponibilidade própria,
+  // sem depender do encadeamento investigativo.
+  const specialModes = CASE_REGISTRY.filter(item => item.type === 'bug-hunter' && !item.lockedByDefault);
+
+  return [...availableInvestigations, ...specialModes, ...availableProjects];
 }
 
 export function isCaseAvailable(caseId, progressByCase = {}) {

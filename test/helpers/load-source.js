@@ -251,6 +251,29 @@ function loadLesson() {
   return evalModule(transformed, {}, 'lesson.js');
 }
 
+/**
+ * Carrega o bug-hunter.js real (dados dos desafios) do src/cases/.
+ * @returns {object}
+ */
+function loadBugHunterChallenges() {
+  const code = readSource(path.join('cases', 'bug-hunter.js'));
+  const transformed = transformESM(code);
+  return evalModule(transformed, {}, 'cases/bug-hunter.js');
+}
+
+/**
+ * Carrega o bug-hunter-validator.js real.
+ * Precisa de executeQuery injetado (do executor).
+ * @param {Function} executeQuery
+ * @returns {object}
+ */
+function loadBugHunterValidator(executeQuery) {
+  const code = readSource('bug-hunter-validator.js');
+  let transformed = transformESM(code);
+  transformed = `const executeQuery = __injected_executeQuery;\n` + transformed;
+  return evalModule(transformed, { __injected_executeQuery: executeQuery }, 'bug-hunter-validator.js');
+}
+
 module.exports = {
   readSource,
   transformESM,
@@ -262,5 +285,7 @@ module.exports = {
   loadLevels,
   loadCourseContent,
   loadLesson,
+  loadBugHunterChallenges,
+  loadBugHunterValidator,
   loadSeedData,
 };

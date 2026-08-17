@@ -271,6 +271,11 @@ function loadAppWithMocks() {
     projSuporteLevels: loadLevelsFrom('cases/proj-suporte/levels.js'),
     projPublicoLevels: loadLevelsFrom('cases/proj-publico/levels.js'),
     projFutebolLevels: loadLevelsFrom('cases/proj-futebol/levels.js'),
+    bugHunterLevels: {
+      BUG_HUNTER_INTRO: { title: 'Bug Hunter', subtitle: 'Debugging', story: 'Corrija os relatórios quebrados.' },
+      BUG_HUNTER_CONCLUSION: { title: 'Modo concluído' },
+      BUG_CHALLENGES: [],
+    },
   });
 
   // er-diagram e ai-hints puros
