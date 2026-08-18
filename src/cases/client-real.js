@@ -80,16 +80,12 @@ export function evaluateReport(report, engagement) {
   // Os requiredWords incluem formas alternativas (ex.: '30.700'/'30700', 'março'/'marco');
   // o jogador só precisa citar ALGUMAS dessas formas — exige-se no mínimo a metade.
   const requiredDataWords = engagement.reportRequiredWords || [];
-  const matchedDataWords = requiredDataWords.filter(word => lower.includes(word));
-  const missingDataWords = requiredDataWords.filter(word => !lower.includes(word));
+  const matchedDataWords = requiredDataWords.filter(word => reportContains(lower, word));
+  const missingDataWords = requiredDataWords.filter(word => !reportContains(lower, word));
   // 2. Sinais de comunicação vaga (sem números, sem conclusão)
-  const vagueSignals = (engagement.reportVagueSignals || []).filter(sig =>
-    lower.includes(sig)
-  );
+  const vagueSignals = (engagement.reportVagueSignals || []).filter(sig => reportContains(lower, sig));
   // 3. Recomendações obrigatórias (fase consultiva) — basta UM indicativo de orientação.
-  const matchedAdviceWords = (engagement.reportAdviceWords || []).filter(word =>
-    lower.includes(word)
-  );
+  const matchedAdviceWords = (engagement.reportAdviceWords || []).filter(word => reportContains(lower, word));
 
   if (requiredDataWords.length > 0 && matchedDataWords.length < Math.ceil(requiredDataWords.length / 2)) {
     return {
@@ -116,7 +112,31 @@ export function evaluateReport(report, engagement) {
 }
 
 function escapeForFeedback(text) {
+  // O feedback é inserido pelo renderer via textContent; preserve a mensagem
+  // original para não exibir entidades HTML literalmente ao jogador.
   return text.slice(0, 120).replace(/"/g, "'");
+}
+
+/**
+ * Compara termos da heurística aceitando a notação decimal mais comum em
+ * português e a notação exibida pelo SQLite (ex.: 4,56 e 4.56).
+ */
+function reportContains(text, term) {
+  const source = String(text || '').toLowerCase();
+  const value = String(term || '').toLowerCase();
+  if (!value) return false;
+  if (source.includes(value)) return true;
+
+  if (/^\d+[,.]\d{2}$/.test(value)) {
+    const alternate = value.includes(',') ? value.replace(',', '.') : value.replace('.', ',');
+    return source.includes(alternate);
+  }
+
+  if (/^\d{1,3}(?:[.,]\d{3})+$/.test(value)) {
+    const compact = value.replace(/[.,]/g, '');
+    return source.replace(/[.,]/g, '').includes(compact);
+  }
+  return false;
 }
 
 /* ------------------------------------------------------------------ */
@@ -247,7 +267,7 @@ Monte o ranking do trimestre por vendedor com sua região.`,
         expectedColumns: ['vendedor', 'regiao', 'total_faturado_centavos'],
         referenceQuery: 'SELECT v.nome AS vendedor, r.nome AS regiao, SUM(ve.valor_centavos) AS total_faturado_centavos FROM vendedores v JOIN regioes r ON r.id = v.regiao_id JOIN vendas ve ON ve.vendedor_id = v.id GROUP BY v.id, v.nome, r.nome ORDER BY total_faturado_centavos DESC;',
         requiredConcepts: ['join', 'group by', 'order by'],
-        insight: 'Lucas Prado (Sudeste) lidera com R$ 32.750,00 no trimestre — mais do que Sul e Norte juntos (R$ 37.850,00).',
+        insight: 'Lucas Prado (Sudeste) lidera com R$ 32.750,00 no trimestre; Sul e Norte juntos somam R$ 37.850,00, então a concentração em um único vendedor é relevante, mas não supera as duas regiões combinadas.',
       },
       {
         id: 'a3',

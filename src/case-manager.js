@@ -224,7 +224,10 @@ export function isCaseComplete(caseDefinition, progressByCase = {}) {
 }
 
 export function getAvailableCases(progressByCase = {}) {
-  const investigations = getInvestigations().filter(item => item.id !== 'bug-hunter');
+  // Os modos especiais também aparecem em getInvestigations para a tela de
+  // catálogo, mas são adicionados abaixo como desbloqueios independentes.
+  // Mantê-los nesta lista sequencial duplicaria cards no lobby.
+  const investigations = getInvestigations().filter(item => item.type === 'investigation' || !item.type);
   const availableInvestigations = investigations.filter((caseDefinition, index) => {
     if (index === 0) return true;
     return isCaseComplete(investigations[index - 1], progressByCase);

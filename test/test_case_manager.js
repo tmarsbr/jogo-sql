@@ -124,5 +124,16 @@ const completed005 = {
 };
 assert(manager.isCaseAvailable('case006', completed005), 'Case006 desbloqueia após as 14 missões e o desafio do case005');
 
+const completedAllModes = {};
+for (const item of allCases) {
+  const levels = item.LEVELS || item.BUG_CHALLENGES || item.SCHEMA_CHALLENGES || item.ENGAGEMENTS || [];
+  completedAllModes[item.id] = {
+    completedLevels: levels.map(level => level.id),
+    interrogation: { status: 'won' },
+  };
+}
+const availableIds = manager.getAvailableCases(completedAllModes).map(item => item.id);
+assert(new Set(availableIds).size === availableIds.length, 'lobby não duplica modos especiais após concluir os casos');
+
 console.log(`\nRESULTADO: ${passed} passaram, ${failed} falharam`);
 process.exit(failed ? 1 : 0);

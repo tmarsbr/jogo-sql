@@ -6,13 +6,12 @@
  * Projeto de Desempenho de Vendas, com dados próprios determinísticos.
  *
  * Fatos-chave embutidos nos dados (usados nas respostas das consultorias):
- * - Faturamento mensal: jan R$ 9.250,00 → fev R$ 10.450,00 → mar R$ 12.950,00
- *   (crescimento consistente, +40% no trimestre).
- * - Melhor vendedor: Lucas Prado (Sudeste), R$ 20.050,00 no trimestre.
- * - Pior vendedor: Fernanda Costa (Norte), R$ 4.100,00 e única abaixo da meta
- *   em todos os meses (62% de atingimento em março).
- * - Região Norte é a única abaixo da meta consolidada (78% em março).
- * - Desconto médio da Sudeste é o menor (3,4%) e o do Sul o maior (6,2%).
+ * - Faturamento mensal: jan R$ 23.450,00 → fev R$ 23.450,00 → mar R$ 30.700,00
+ *   (+30,98% de janeiro a março).
+ * - Melhor vendedor: Lucas Prado (Sudeste), R$ 32.750,00 no trimestre.
+ * - Menor faturamento: Fernanda Costa (Norte), R$ 4.300,00; em março ela
+ *   realizou R$ 1.700,00 contra meta de R$ 3.000,00.
+ * - Desconto médio: Norte 7,00%, Sul 4,56% e Sudeste 2,82%.
  */
 export const SCHEMA_SQL = `
 PRAGMA foreign_keys = ON;

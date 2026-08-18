@@ -986,7 +986,7 @@ function loadClientRealChallenge(engagementId) {
     renderClientRealReportField(engagement.id, '');
     setResults('');
   } else if (phase === 'done') {
-    enableEditorButtons(false);
+    enableEditorButtons(true);
     setEditorValue('');
     setResults('<p class="placeholder-text">Consultoria entregue. Avance para a próxima ou explore o banco livremente.</p>');
     const nextEngagement = engagements.find(e => Number(e.number) === Number(engagement.number) + 1);
@@ -1423,12 +1423,17 @@ function handleClientRealClarification(payload) {
   const engagement = (getActiveCase().ENGAGEMENTS || []).find(e => e.id === engagementId);
   if (!engagement) return;
   const questionIndex = Number(questionIndexStr);
+  if (!Number.isInteger(questionIndex)) return;
+  if (!isClientRealMode() || state.currentLevel !== engagementId) return;
+  const currentState = getClientRealProgress(state.progressByCase)[engagementId] || createEngagementState();
+  if (currentState.phase !== 'clarify' || currentState.clarificationIndex !== questionIndex) return;
   const result = validateClarification(engagement, questionIndex, optionId);
   updateClientRealEngagement(state.progressByCase, engagementId, (s) => {
     s.clarificationAttempts += 1;
     if (result.correct) s.clarificationCorrectCount += 1;
     return s;
   });
+  persistState();
   const feedbackContainer = document.getElementById('client-real-clarification-feedback');
   if (feedbackContainer) {
     feedbackContainer.innerHTML = '';
@@ -1484,6 +1489,7 @@ async function handleClientRealRun(sql, db, activeCase) {
       if (feedback.type === FEEDBACK_SQL_ERROR) s.sqlErrors += 1;
       return s;
     });
+    persistState();
     if (feedback.result) {
       renderResults(feedback.result);
     }
@@ -1513,6 +1519,8 @@ async function handleClientRealRun(sql, db, activeCase) {
         setResults('');
       }
       persistState();
+    } else {
+      persistState();
     }
     return;
   }
@@ -1539,6 +1547,7 @@ async function handleClientRealReport(report) {
     s.reportAttempts += 1;
     return s;
   });
+  persistState();
   const passed = feedback.passed;
   renderClientRealReportFeedback(feedback, passed);
   if (passed) {
@@ -1562,7 +1571,7 @@ async function handleClientRealReport(report) {
     }));
     const reloaded = getClientRealProgress(state.progressByCase)[engagement.id];
     setBriefing(renderClientRealBriefing(engagement, reloaded, [...state.completedLevels]));
-    enableEditorButtons(false);
+    enableEditorButtons(true);
     setEditorValue('');
     renderClientRealProgress(getActiveCase().ENGAGEMENTS || [], engagement.id, [...state.completedLevels]);
     renderScore(state.score, calculateTotalStars(state.levelProgress), calculateMaxStars((getActiveCase().ENGAGEMENTS || []).length));

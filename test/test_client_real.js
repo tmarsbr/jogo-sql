@@ -196,7 +196,7 @@ function makeEngagementState(overrides = {}) {
 /* ================================================================== */
 
 function loadApp(SQL) {
-  const spy = { briefing: '', feedback: null, results: '', editor: '', reportInput: '', nextHidden: true };
+  const spy = { briefing: '', feedback: null, results: '', editor: '', reportInput: '', nextHidden: true, persistCalls: 0 };
   const { document, elements, listeners } = createMockDocument(spy);
   const localStorage = new LocalStorageMock();
   const executor = loadExecutor();
@@ -280,7 +280,7 @@ function loadApp(SQL) {
     activateCaseProgress: stateModule.activateCaseProgress,
     syncActiveCaseProgress: stateModule.syncActiveCaseProgress,
     createCaseProgress: stateModule.createCaseProgress,
-    saveState: storage.saveState,
+    saveState: (...args) => { spy.persistCalls += 1; return storage.saveState(...args); },
     loadState: storage.loadState,
     clearState: storage.clearState,
     calculateStars: scoring.calculateStars,
@@ -455,6 +455,8 @@ function loadApp(SQL) {
   assert(clientRealData.evaluateReport(good2, ENGAGEMENTS[1]).passed === true, 'cr-2: relatório completo passa');
   const good3 = `O desconto médio do Sul é 4,56%, abaixo do Norte (7,00%) e acima do Sudeste (2,82%). A Fernanda, no Norte, dá os maiores descontos e é quem menos fatura. Recomendo criar um limite de desconto por região e monitorar a margem nas próximas semanas.`;
   assert(clientRealData.evaluateReport(good3, ENGAGEMENTS[2]).passed === true, 'cr-3: relatório completo passa');
+  const good3SqlNotation = `O desconto médio do Sul é 4.56%, abaixo do Norte (7.00%) e acima do Sudeste (2.82%). A Fernanda, no Norte, dá os maiores descontos e é quem menos fatura. Recomendo criar um limite de desconto por região e monitorar a margem.`;
+  assert(clientRealData.evaluateReport(good3SqlNotation, ENGAGEMENTS[2]).passed === true, 'cr-3: aceita decimais na notação do SQLite');
 
   console.log('\n[5] Score e estrelas');
   const perfect = crValidator.computeEngagementScore(makeEngagementState(), e1);
@@ -491,10 +493,16 @@ function loadApp(SQL) {
   assert(env.spy.briefing.includes('CLIENTE NA SALA'), 'fase clarify exibida no briefing');
   // Responde a clarificação correta via handler de delegação
   const docClick = env.listeners.find(l => l.el === 'document' && l.type === 'click' && l.fn.toString().includes('handleClientReal'));
+  const wrongOpt = ENGAGEMENTS[0].clarifications[0].options.find(o => !o.correct);
+  const persistBeforeWrongClarification = env.spy.persistCalls;
+  docClick.fn({ target: { closest: (sel) => (sel === '[data-cr-answer]' ? { dataset: { crAnswer: `cr-1|0|${wrongOpt.id}` } } : null) } });
+  assert(env.app.getClientRealProgress(state.progressByCase)['cr-1'].clarificationAttempts === 1, 'clarificacao errada incrementa tentativas');
+  assert(env.spy.persistCalls > persistBeforeWrongClarification, 'clarificacao errada e persistida');
   for (let q = 0; q < ENGAGEMENTS[0].clarifications.length; q++) {
     const opt = ENGAGEMENTS[0].clarifications[q].options.find(o => o.correct);
     const fakeClick = { target: { closest: (sel) => (sel === '[data-cr-answer]' ? { dataset: { crAnswer: `cr-1|${q}|${opt.id}` } } : null) } };
     docClick.fn(fakeClick);
+    if (q === 0) docClick.fn(fakeClick);
   }
   const progressed = env.app.getClientRealProgress(state.progressByCase)['cr-1'];
   assert(progressed.clarificationIndex === ENGAGEMENTS[0].clarifications.length, 'todas as clarificações respondidas avançam o índice');
@@ -502,6 +510,12 @@ function loadApp(SQL) {
   // Fase analyze: executa as queries corretas via listener do btn-run
   state.currentLevel = 'cr-1';
   const runListener = env.listeners.find(l => l.el === 'btn-run' && l.type === 'click');
+  const persistBeforeWrongAnalysis = env.spy.persistCalls;
+  env.spy.editor = 'SELECT 1;';
+  await runListener.fn();
+  const afterWrongAnalysis = env.app.getClientRealProgress(state.progressByCase)['cr-1'];
+  assert(afterWrongAnalysis.analysisIndex === 0 && afterWrongAnalysis.analysisAttempts === 1, 'query errada nao avanca a analise, mas registra tentativa');
+  assert(env.spy.persistCalls > persistBeforeWrongAnalysis, 'query errada e persistida');
   env.spy.editor = a1.referenceQuery;
   await runListener.fn();
   const afterA1 = env.app.getClientRealProgress(state.progressByCase)['cr-1'];
@@ -514,6 +528,13 @@ function loadApp(SQL) {
   env.spy.reportInput = good1;
   const submitEl = { closest: (sel) => (sel === '#client-real-report-submit' ? { dataset: {} } : null) };
   const fakeSubmit = { target: { closest: (sel) => (sel === '#client-real-report-submit' ? submitEl : (sel === '[data-cr-answer]' ? null : null)) } };
+  const persistBeforeWrongReport = env.spy.persistCalls;
+  env.spy.reportInput = 'Acho que esta tudo bem, mas talvez seja melhor acompanhar.';
+  docClick.fn(fakeSubmit);
+  const afterWrongReport = env.app.getClientRealProgress(state.progressByCase)['cr-1'];
+  assert(afterWrongReport.phase === 'report' && afterWrongReport.reportAttempts === 1, 'relatorio reprovado permite nova tentativa');
+  assert(env.spy.persistCalls > persistBeforeWrongReport, 'relatorio reprovado e persistido');
+  env.spy.reportInput = good1;
   docClick.fn(fakeSubmit);
   const afterReport = env.app.getClientRealProgress(state.progressByCase)['cr-1'];
   assert(afterReport.phase === 'done' && state.completedLevels.includes('cr-1'), 'relatório aprovado conclui a consultoria e registra no completedLevels');

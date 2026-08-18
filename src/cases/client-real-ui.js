@@ -128,9 +128,17 @@ export function renderClientRealFeedback(feedback) {
   }[feedback.type] || 'feedback';
   const div = document.createElement('div');
   div.className = `${cls} client-real-feedback`;
-  div.innerHTML = feedback.message
-    ? `<span>${feedback.message}</span>${feedback.result ? `<div style="margin-top: 8px;">${feedback.result}</div>` : ''}`
-    : '';
+  if (feedback.message) {
+    const message = document.createElement('span');
+    message.textContent = String(feedback.message);
+    div.appendChild(message);
+  }
+  if (feedback.result) {
+    const result = document.createElement('div');
+    result.style.marginTop = '8px';
+    result.textContent = String(feedback.result);
+    div.appendChild(result);
+  }
   container.appendChild(div);
 }
 
@@ -168,7 +176,7 @@ export function renderClientRealReportFeedback(feedback, clearDraft = false) {
   const input = document.getElementById('client-real-report-input');
   const btn = document.getElementById('client-real-report-submit');
   if (clearDraft && input) input.value = '';
-  if (btn) btn.disabled = !clearDraft;
+  if (btn) btn.disabled = clearDraft;
   if (target) {
     target.innerHTML = '';
     const cls = feedback.type === 'report_passed' ? 'feedback feedback-success' : 'feedback feedback-warn';
