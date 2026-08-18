@@ -33,7 +33,31 @@ const challenges = loadSchemaBuilderChallenges();
 const { validateSchemaChallenge, SB_FEEDBACK_CORRECT, SB_FEEDBACK_INCOMPLETE,
         SB_FEEDBACK_SQL_ERROR, SB_FEEDBACK_BLOCKED, SB_FEEDBACK_MISSING_TABLE,
         SB_FEEDBACK_UNEXPECTED_TABLE, SB_FEEDBACK_MISSING_PK, SB_FEEDBACK_MISSING_FK,
-        SB_FEEDBACK_MISSING_JUNCTION } = validator;
+        SB_FEEDBACK_MISSING_JUNCTION, SB_FEEDBACK_CONSTRAINT_MISSING,
+        executeMultipleStatements, findForbiddenKeyword, splitStatements,
+        getCreatedTableName, getCreatedTableNames, mergeSchemaStatements,
+        getExistingTables } = validator;
+
+/**
+ * Remove as FKs mantendo o DDL válido: apaga a cláusula e a vírgula que a precede.
+ * @param {string} ddl
+ * @returns {string}
+ */
+function stripForeignKeys(ddl) {
+  return ddl.replace(/,\s*FOREIGN KEY\s*\([^)]*\)\s*REFERENCES\s*\w+\s*\([^)]*\)/gi, '');
+}
+
+/**
+ * Remove as PKs mantendo o DDL válido (tanto de coluna quanto compostas).
+ * @param {string} ddl
+ * @returns {string}
+ */
+function stripPrimaryKeys(ddl) {
+  return ddl
+    .replace(/\s+PRIMARY\s+KEY\b(?!\s*\()/gi, '')
+    .replace(/,\s*PRIMARY\s+KEY\s*\([^)]*\)/gi, '')
+    .replace(/PRIMARY\s+KEY\s*\([^)]*\)\s*,\s*/gi, '');
+}
 
 /** Cria um banco vazio com foreign_keys habilitado. */
 function freshDB(SQL) {
@@ -219,13 +243,18 @@ async function run() {
     const r5 = validateSchemaChallenge('DROP TABLE usuarios;', ch, freshDB(SQL));
     assert(r5.type === SB_FEEDBACK_BLOCKED, `DROP bloqueado → ${r5.type} (esperado blocked)`);
 
-    // 6. Sem FK no lado N → missing_fk/incomplete
+    // 6. Sem FK no lado N → missing_fk.
+    // O DDL precisa continuar VÁLIDO: se a remoção das FKs deixar vírgulas
+    // penduradas, o resultado vira sql_error e o caminho missing_fk nunca é testado.
     console.log(`[${ch.id}.6] Sem chave estrangeira`);
-    let ddlNoFk = SOLUTIONS[ch.id]();
-    ddlNoFk = ddlNoFk.replace(/FOREIGN KEY\s*\([^)]*\)\s*REFERENCES\s*\w+\s*\([^)]*\),?/gi, '');
-    const r6 = validateSchemaChallenge(ddlNoFk, ch, freshDB(SQL));
-    assert(r6.type !== SB_FEEDBACK_CORRECT,
-      `sem FKs não deve ser accepted → ${r6.type} (esperado ≠ correct)`);
+    const ddlNoFk = stripForeignKeys(SOLUTIONS[ch.id]());
+    const dbNoFk = freshDB(SQL);
+    const applyNoFk = executeMultipleStatements(ddlNoFk, dbNoFk);
+    assert(applyNoFk.errors.length === 0,
+      `DDL sem FKs continua sintaticamente válido${applyNoFk.errors.length ? ' — ' + applyNoFk.errors[0].message : ''}`);
+    const r6 = validateSchemaChallenge(ddlNoFk, ch, dbNoFk, { applyDdl: false });
+    assert(r6.type === SB_FEEDBACK_MISSING_FK,
+      `sem FKs → ${r6.type} (esperado missing_fk)`);
 
     // 7. N:N exige junção com duas FKs → missing_junction (desafios 2-6 com N:N)
     if (Object.keys(ch.junctionTables || {}).length > 0) {
@@ -235,22 +264,113 @@ async function run() {
       ddlNoJunction = ddlNoJunction.replace(
         new RegExp(`CREATE TABLE\\s+${junctionName}[^;]*;`, 'i'), '');
       const r7 = validateSchemaChallenge(ddlNoJunction, ch, freshDB(SQL));
-      assert(r7.type === SB_FEEDBACK_MISSING_JUNCTION || r7.type === SB_FEEDBACK_MISSING_TABLE,
-        `junção ${junctionName} ausente → ${r7.type} (esperado missing_junction/missing_table)`);
+      assert(r7.type === SB_FEEDBACK_MISSING_JUNCTION,
+        `junção ${junctionName} ausente → ${r7.type} (esperado missing_junction)`);
     }
 
-    // 8. Sem PK na tabela principal → missing_pk
+    // 8. Sem PK na tabela principal → missing_pk (com DDL válido, ver nota acima).
     console.log(`[${ch.id}.8] Sem chave primária`);
-    let ddlNoPk = SOLUTIONS[ch.id]();
-    // Remove declarações de PK de coluna única (id INTEGER PRIMARY KEY → id INTEGER)
-    // e linhas de PK composta (PRIMARY KEY (a, b),) sem quebrar a sintaxe.
-    ddlNoPk = ddlNoPk.replace(/\b(\w+)\s+(INTEGER|TEXT|REAL)\s+PRIMARY\s+KEY\b/i, '$1 $2');
-    ddlNoPk = ddlNoPk.replace(/PRIMARY\s+KEY\s*\([^)]*\)\s*,?\s*\n?/gi, '');
-    ddlNoPk = ddlNoPk.replace(/,\s*\)/g, ')'); // limpa vírgulas penduradas
-    const r8 = validateSchemaChallenge(ddlNoPk, ch, freshDB(SQL));
-    assert(r8.type === SB_FEEDBACK_MISSING_PK || r8.type === SB_FEEDBACK_INCOMPLETE || r8.type === SB_FEEDBACK_SQL_ERROR,
-      `sem PK → ${r8.type} (esperado missing_pk/incomplete/sql_error)`);
+    const ddlNoPk = stripPrimaryKeys(SOLUTIONS[ch.id]());
+    const dbNoPk = freshDB(SQL);
+    const applyNoPk = executeMultipleStatements(ddlNoPk, dbNoPk);
+    assert(applyNoPk.errors.length === 0,
+      `DDL sem PKs continua sintaticamente válido${applyNoPk.errors.length ? ' — ' + applyNoPk.errors[0].message : ''}`);
+    const r8 = validateSchemaChallenge(ddlNoPk, ch, dbNoPk, { applyDdl: false });
+    assert(r8.type === SB_FEEDBACK_MISSING_PK,
+      `sem PK → ${r8.type} (esperado missing_pk)`);
   }
+
+  // ====== Regressões dos bugs encontrados na avaliação ======
+  console.log('\n=== Regressões: sanitização de comandos ===');
+  const ch1 = all[0];
+
+  // BUG: ON DELETE/UPDATE CASCADE fazia o validador ler DELETE/UPDATE como DML.
+  const ddlCascade = `
+    CREATE TABLE departamentos (id INTEGER PRIMARY KEY, nome TEXT NOT NULL);
+    CREATE TABLE funcionarios (id INTEGER PRIMARY KEY, nome TEXT NOT NULL, cargo TEXT NOT NULL,
+      departamento_id INTEGER,
+      FOREIGN KEY (departamento_id) REFERENCES departamentos(id) ON DELETE CASCADE);`;
+  const rCascade = validateSchemaChallenge(ddlCascade, ch1, freshDB(SQL));
+  assert(rCascade.type === SB_FEEDBACK_CORRECT,
+    `FK com ON DELETE CASCADE é aceita → ${rCascade.type} (esperado correct)`);
+
+  const rCascadeUpdate = validateSchemaChallenge(
+    ddlCascade.replace('ON DELETE CASCADE', 'ON UPDATE SET NULL'), ch1, freshDB(SQL));
+  assert(rCascadeUpdate.type === SB_FEEDBACK_CORRECT,
+    `FK com ON UPDATE SET NULL é aceita → ${rCascadeUpdate.type} (esperado correct)`);
+
+  // BUG: palavra proibida dentro de comentário bloqueava um DDL legítimo.
+  const rComment = validateSchemaChallenge(
+    `-- ainda vou INSERT os dados de teste depois
+     /* nada de DROP aqui */
+     ${ddlChallenge1()}`, ch1, freshDB(SQL));
+  assert(rComment.type === SB_FEEDBACK_CORRECT,
+    `palavra proibida em comentário não bloqueia → ${rComment.type} (esperado correct)`);
+
+  // Comandos realmente proibidos continuam bloqueados.
+  for (const bad of ['DROP TABLE departamentos;', 'DELETE FROM departamentos;',
+                     "INSERT INTO departamentos VALUES (1, 'x');", 'ALTER TABLE departamentos RENAME TO d;']) {
+    const rBad = validateSchemaChallenge(bad, ch1, freshDB(SQL));
+    assert(rBad.type === SB_FEEDBACK_BLOCKED, `"${bad}" continua bloqueado → ${rBad.type}`);
+  }
+
+  console.log('\n=== Regressões: fluxo incremental (uma tabela por execução) ===');
+
+  // BUG: o app reaplicava o DDL já acumulado e quebrava com "already exists"
+  // na segunda execução. O modelo acumulado precisa ser idempotente.
+  const incDb = freshDB(SQL);
+  let model = [];
+  const runStep = (typed) => {
+    model = mergeSchemaStatements(model, typed);
+    const ddl = model.join('\n');
+    const stepDb = freshDB(SQL);
+    const { errors } = executeMultipleStatements(ddl, stepDb);
+    return { errors, feedback: validateSchemaChallenge(ddl, ch1, stepDb, { applyDdl: false }), ddl };
+  };
+
+  const step1 = runStep('CREATE TABLE departamentos (id INTEGER PRIMARY KEY, nome TEXT NOT NULL);');
+  assert(step1.errors.length === 0, 'execução 1 (departamentos) aplica sem erro');
+  assert(step1.feedback.type === SB_FEEDBACK_MISSING_TABLE,
+    `execução 1 → ${step1.feedback.type} (esperado missing_table)`);
+
+  // O jogador acrescenta a segunda tabela ao conteúdo que já está no editor.
+  const step2 = runStep(step1.ddl + `
+    CREATE TABLE funcionarios (id INTEGER PRIMARY KEY, nome TEXT NOT NULL, cargo TEXT NOT NULL,
+      departamento_id INTEGER, FOREIGN KEY (departamento_id) REFERENCES departamentos(id));`);
+  assert(step2.errors.length === 0,
+    `execução 2 não repete instruções já aplicadas${step2.errors.length ? ' — ' + step2.errors[0].message : ''}`);
+  assert(step2.feedback.type === SB_FEEDBACK_CORRECT,
+    `execução 2 conclui o modelo → ${step2.feedback.type} (esperado correct)`);
+
+  // Rodar de novo sem digitar nada é idempotente.
+  const step3 = runStep(step2.ddl);
+  assert(step3.errors.length === 0 && step3.feedback.type === SB_FEEDBACK_CORRECT,
+    `reexecutar o mesmo modelo é idempotente → ${step3.feedback.type}`);
+  assert(model.length === 2, `modelo acumulado não duplica instruções (${model.length} instruções)`);
+
+  // Redefinir uma tabela substitui a definição anterior (corrigir sem recomeçar).
+  const corrigido = mergeSchemaStatements(
+    ['CREATE TABLE departamentos (id INTEGER);'],
+    'CREATE TABLE departamentos (id INTEGER PRIMARY KEY, nome TEXT NOT NULL);');
+  assert(corrigido.length === 1 && /PRIMARY KEY/.test(corrigido[0]),
+    'redefinir uma tabela substitui a definição anterior');
+
+  console.log('\n=== Regressões: parsing de instruções ===');
+  assert(splitStatements("CREATE TABLE a (nome TEXT DEFAULT 'x;y');").length === 1,
+    "';' dentro de literal não divide instrução");
+  assert(splitStatements('CREATE TABLE a (id INT); -- comentário; com ponto e vírgula').length === 1,
+    "';' dentro de comentário não vira instrução");
+  assert(getCreatedTableName('CREATE TABLE IF NOT EXISTS "minha_tabela" (id INT);') === 'minha_tabela',
+    'getCreatedTableName lê nome com aspas e IF NOT EXISTS');
+  assert(getCreatedTableName('SELECT * FROM departamentos;') === null,
+    'getCreatedTableName ignora consultas');
+
+  // BUG: o checklist procurava o nome da tabela no texto do DDL, então uma tabela
+  // apenas citada numa FK aparecia como "criada".
+  const criadas = getCreatedTableNames(
+    'CREATE TABLE funcionarios (id INT, departamento_id INT, FOREIGN KEY (departamento_id) REFERENCES departamentos(id));');
+  assert(criadas.length === 1 && criadas[0] === 'funcionarios',
+    `checklist conta só tabelas criadas, não as citadas em FK (${JSON.stringify(criadas)})`);
 
   console.log(`\n${'='.repeat(60)}`);
   console.log(`TOTAL: ${passed + failed} testes — ${passed} passaram, ${failed} falharam`);

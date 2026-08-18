@@ -120,6 +120,9 @@ export const SCHEMA_CHALLENGES = [
         ],
       },
     },
+    junctionTables: {
+      funcionario_projeto: { connects: ['funcionarios', 'projetos'] },
+    },
     hints: [
       'Você já tem departamentos e funcionarios; continue de onde parou. Falta a gestão de projetos.',
       'Crie a tabela "projetos" com id, nome e prazo, com id como PRIMARY KEY.',
@@ -173,6 +176,9 @@ export const SCHEMA_CHALLENGES = [
           { column: 'disciplina_id', references: 'disciplinas' },
         ],
       },
+    },
+    junctionTables: {
+      matricula: { connects: ['alunos', 'disciplinas'] },
     },
     hints: [
       'Identifique as entidades: turmas, alunos e disciplinas. Comece pelas duas que não dependem de ninguém.',
@@ -252,6 +258,9 @@ export const SCHEMA_CHALLENGES = [
           { column: 'leitor_id', references: 'leitores' },
         ],
       },
+    },
+    junctionTables: {
+      livro_autor: { connects: ['livros', 'autores'] },
     },
     hints: [
       'Comece com as entidades independentes: livros, autores e leitores, cada uma com PK própria.',
@@ -387,6 +396,10 @@ export const SCHEMA_CHALLENGES = [
           { column: 'filme_id', references: 'filmes' },
         ],
       },
+    },
+    junctionTables: {
+      assistiu: { connects: ['perfis', 'filmes'] },
+      favoritos: { connects: ['contas', 'filmes'] },
     },
     hints: [
       'Divida o problema em blocos: contas/perfis (hierarquia), catálogo (filmes/series/episodios) e depois os relacionamentos.',

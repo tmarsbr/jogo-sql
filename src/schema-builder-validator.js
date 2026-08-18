@@ -41,35 +41,78 @@ function normalizeIdentifier(name) {
 
 /* --- Sanitização e bloqueio de comandos --- */
 
-function stripStringLiterals(sql) {
+/**
+ * Substitui por espaços tudo que não é código executável — literais de string
+ * ('...'), comentários de linha (--) e comentários de bloco. Preserva o
+ * comprimento original do texto, para servir de máscara posicional sobre o SQL.
+ *
+ * Aspas duplas e crases NÃO são apagadas: em SQL elas delimitam identificador
+ * (CREATE TABLE "minha_tabela"), e apagá-las faria o nome da tabela sumir.
+ * @param {string} sql
+ * @returns {string} texto do mesmo tamanho, com literais e comentários apagados
+ */
+function stripNoise(sql) {
+  const source = String(sql);
   let result = '';
-  let inString = false;
+  let mode = 'code'; // 'code' | 'string' | 'line-comment' | 'block-comment'
   let quote = null;
-  for (let index = 0; index < sql.length; index++) {
-    const character = sql[index];
-    if (inString) {
+
+  for (let index = 0; index < source.length; index++) {
+    const character = source[index];
+    const next = source[index + 1];
+
+    if (mode === 'string') {
       if (character === quote) {
-        if (sql[index + 1] === quote) { result += '  '; index++; continue; }
-        inString = false;
+        // Aspa duplicada ('') escapa o delimitador e segue dentro do literal.
+        if (next === quote) { result += '  '; index++; continue; }
+        mode = 'code';
         quote = null;
       }
       result += ' ';
       continue;
     }
-    if (character === "'" || character === '"') {
-      inString = true;
-      quote = character;
-      result += ' ';
+
+    if (mode === 'line-comment') {
+      // Preserva a quebra de linha para não fundir instruções distintas.
+      result += (character === '\n') ? '\n' : ' ';
+      if (character === '\n') mode = 'code';
       continue;
     }
+
+    if (mode === 'block-comment') {
+      if (character === '*' && next === '/') { result += '  '; index++; mode = 'code'; continue; }
+      result += (character === '\n') ? '\n' : ' ';
+      continue;
+    }
+
+    if (character === '-' && next === '-') { result += '  '; index++; mode = 'line-comment'; continue; }
+    if (character === '/' && next === '*') { result += '  '; index++; mode = 'block-comment'; continue; }
+    if (character === "'") { mode = 'string'; quote = character; result += ' '; continue; }
+
     result += character;
   }
+
   return result;
 }
 
+/**
+ * Apaga as ações referenciais de uma chave estrangeira (ON DELETE CASCADE,
+ * ON UPDATE SET NULL...). Sem isso, as palavras DELETE e UPDATE que fazem parte
+ * de um FOREIGN KEY legítimo seriam confundidas com comandos DML proibidos.
+ * @param {string} sql
+ * @returns {string}
+ */
+function stripReferentialActions(sql) {
+  return String(sql).replace(
+    /\bON\s+(?:DELETE|UPDATE)\s+(?:CASCADE|RESTRICT|NO\s+ACTION|SET\s+NULL|SET\s+DEFAULT)\b/gi,
+    ' '
+  );
+}
+
 function findForbiddenKeyword(sql) {
-  // No modo Construtor de Schema só CREATE TABLE/INDEX/TRIGGER e consultas são permitidos.
-  const searchable = stripStringLiterals(sql);
+  // No modo Construtor de Schema só CREATE TABLE/INDEX/TRIGGER e consultas são
+  // permitidos. Comentários, literais e ações referenciais de FK não são comandos.
+  const searchable = stripReferentialActions(stripNoise(sql));
   const forbidden = ['INSERT', 'UPDATE', 'DELETE', 'DROP', 'ALTER', 'ATTACH', 'DETACH', 'PRAGMA', 'VACUUM'];
   for (const kw of forbidden) {
     if (new RegExp(`\\b${kw}\\b`, 'i').test(searchable)) return kw;
@@ -80,51 +123,85 @@ function findForbiddenKeyword(sql) {
 /* --- Execução de múltiplos statements --- */
 
 /**
- * Divide um texto SQL em instruções individuais, respeitando BEGIN..END
- * (corpos de triggers) e literais de string.
+ * Divide um texto SQL em instruções individuais.
+ * Usa stripNoise como máscara posicional: apenas os ';' que estão em código real
+ * separam instruções — os que aparecem dentro de literais de string ou de
+ * comentários são ignorados.
  * @param {string} sql DDL/consultas do jogador
  * @returns {string[]}
  */
 function splitStatements(sql) {
+  const source = String(sql);
+  const mask = stripNoise(source);
   const statements = [];
-  let buffer = '';
-  let depth = 0;
-  let inString = false;
-  let quote = null;
-  for (let index = 0; index < sql.length; index++) {
-    const character = sql[index];
-    if (inString) {
-      buffer += character;
-      if (character === quote) {
-        if (sql[index + 1] === quote) {
-          buffer += sql[index + 1];
-          index++;
-          continue;
-        }
-        inString = false;
-        quote = null;
-      }
-      continue;
-    }
-    if (character === "'" || character === '"') {
-      inString = true;
-      quote = character;
-      buffer += character;
-      continue;
-    }
-    if (/\bBEGIN\b/i.test(buffer.slice(-5)) && depth === 0) {
-      // BEGIN de trigger detectado adiante pelo depth; apenas continua.
-    }
-    buffer += character;
-    if (character === ';') {
-      const piece = buffer.trim();
-      if (piece.length > 0 && piece !== ';') statements.push(piece);
-      buffer = '';
+  let cursor = 0;
+
+  for (let index = 0; index < mask.length; index++) {
+    if (mask[index] !== ';') continue;
+    const piece = source.slice(cursor, index + 1).trim();
+    if (piece.length > 0 && piece !== ';') statements.push(piece);
+    cursor = index + 1;
+  }
+
+  const remaining = source.slice(cursor).trim();
+  // Sobra sem ';' final só conta se houver código de fato (não apenas comentário).
+  if (remaining.length > 0 && mask.slice(cursor).trim().length > 0) statements.push(remaining);
+  return statements;
+}
+
+/**
+ * Extrai o nome da tabela criada por uma instrução CREATE TABLE.
+ * @param {string} statement uma única instrução SQL
+ * @returns {string|null} nome da tabela, ou null se não for um CREATE TABLE
+ */
+function getCreatedTableName(statement) {
+  const code = stripNoise(statement);
+  const match = code.match(/\bCREATE\s+(?:TEMP(?:ORARY)?\s+)?TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?[`"\[]?([A-Za-z_][\w$]*)/i);
+  return match ? match[1] : null;
+}
+
+/**
+ * Lista as tabelas que um DDL cria, na ordem em que aparecem. Permite montar o
+ * checklist do briefing sem depender do estado do banco.
+ * @param {string} ddlSql
+ * @returns {string[]}
+ */
+function getCreatedTableNames(ddlSql) {
+  const names = [];
+  for (const statement of splitStatements(ddlSql || '')) {
+    const name = getCreatedTableName(statement);
+    if (name && !names.some(existing => normalizeIdentifier(existing) === normalizeIdentifier(name))) {
+      names.push(name);
     }
   }
-  const remaining = buffer.trim();
-  if (remaining.length > 0) statements.push(remaining);
-  return statements;
+  return names;
+}
+
+/**
+ * Funde as instruções do editor no modelo acumulado do desafio.
+ *
+ * Um CREATE TABLE para uma tabela já presente SUBSTITUI a definição anterior —
+ * é assim que o jogador corrige um erro de modelagem sem recomeçar o desafio.
+ * Instruções que não criam tabela (consultas, por exemplo) não entram no modelo.
+ *
+ * @param {string[]} accumulated instruções já acumuladas no desafio
+ * @param {string} incomingSql conteúdo do editor
+ * @returns {string[]} novo modelo acumulado
+ */
+function mergeSchemaStatements(accumulated, incomingSql) {
+  const model = Array.isArray(accumulated) ? [...accumulated] : [];
+
+  for (const statement of splitStatements(incomingSql || '')) {
+    const tableName = getCreatedTableName(statement);
+    if (!tableName) continue;
+    const index = model.findIndex(existing =>
+      normalizeIdentifier(getCreatedTableName(existing) || '') === normalizeIdentifier(tableName)
+    );
+    if (index >= 0) model[index] = statement;
+    else model.push(statement);
+  }
+
+  return model;
 }
 
 /**
@@ -198,6 +275,24 @@ function getForeignKeys(db, tableName) {
 
 /* --- Helpers de feedback --- */
 
+/**
+ * Uma tabela é de junção (N:N) quando o desafio a declara em junctionTables ou
+ * quando exige PK composta e ao menos duas FKs — o formato canônico da tabela
+ * associativa.
+ * @param {object} challenge desafio ativo
+ * @param {string} tableName nome da tabela
+ * @returns {boolean}
+ */
+function isJunctionTable(challenge, tableName) {
+  const declared = challenge.junctionTables || {};
+  for (const name of Object.keys(declared)) {
+    if (normalizeIdentifier(name) === normalizeIdentifier(tableName)) return true;
+  }
+  const check = (challenge.tableChecks || {})[tableName];
+  if (!check) return false;
+  return (check.pk || []).length >= 2 && (check.fk || []).length >= 2;
+}
+
 function feedback(type, message, missing = []) {
   return { type, message, missing };
 }
@@ -216,10 +311,7 @@ function hasConstraint(table, columnName, constraint) {
     if (normalizeIdentifier(col.name) === normalized) {
       if (constraint === 'pk') return col.pk;
       if (constraint === 'notnull') return col.notnull;
-      if (constraint === 'fk') {
-        // FK pode aparecer como constraint de coluna ou na PRAGMA foreign_key_list.
-        return col.pk ? false : false; // tratada em nível de FK list
-      }
+      // FKs não são checadas aqui — vêm de PRAGMA foreign_key_list.
       return false;
     }
   }
@@ -300,6 +392,14 @@ export function validateSchemaChallenge(ddlSql, challenge, db, options = {}) {
     }
   }
   if (missingTables.length > 0) {
+    // Se o que falta é a tabela de junção do N:N, o feedback específico ensina
+    // mais do que um "tabela ausente" genérico.
+    const missingJunction = missingTables.find(table => isJunctionTable(challenge, table));
+    if (missingJunction) {
+      return feedback(SB_FEEDBACK_MISSING_JUNCTION,
+        `A relação muitos-para-muitos exige uma tabela de junção ("${missingJunction}") com chave primária composta e uma chave estrangeira para cada lado.`,
+        missingTables);
+    }
     const joined = missingTables.join(', ');
     const hint = missingTables.length === 1
       ? ` A tabela "${missingTables[0]}" ainda não existe.`
@@ -408,4 +508,6 @@ export function validateSchemaChallenge(ddlSql, challenge, db, options = {}) {
 }
 
 /* Exporta helpers de introspecção para testes */
-export { getExistingTables, getColumnsOfTable, getPrimaryKeys, getForeignKeys, normalizeIdentifier, findForbiddenKeyword, executeMultipleStatements, splitStatements };
+export { getExistingTables, getColumnsOfTable, getPrimaryKeys, getForeignKeys, normalizeIdentifier,
+         findForbiddenKeyword, executeMultipleStatements, splitStatements, stripNoise,
+         getCreatedTableName, getCreatedTableNames, mergeSchemaStatements };

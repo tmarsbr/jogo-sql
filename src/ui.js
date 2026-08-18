@@ -1144,14 +1144,18 @@ export function renderTimeline(timelineConfig, completedLevels, order) {
  * Renderiza o briefing do desafio Construtor de Schema (exibido na aba CENÁRIO).
  * Os requisitos, a história e a checklist de tabelas esperadas são montados aqui.
  * @param {object} challenge dados do desafio
- * @param {string} currentDdl DDL atual do jogador (para a checklist)
+ * @param {string} currentDdl DDL atual do jogador
  * @param {number[]} completedLevels ids concluídos
+ * @param {string[]} createdTables tabelas que o modelo realmente cria. Precisa vir
+ *   da análise das instruções (ou do banco): procurar o nome no texto do DDL marca
+ *   como "criada" uma tabela apenas citada numa FK ou num comentário.
  */
-export function renderSchemaChallenge(challenge, currentDdl = '', completedLevels = []) {
+export function renderSchemaChallenge(challenge, currentDdl = '', completedLevels = [], createdTables = []) {
   if (!dom.briefingContent) return;
   const done = completedLevels.includes(challenge.id);
+  const created = new Set((createdTables || []).map(name => String(name).trim().toLowerCase()));
   const expected = (challenge.expectedTables || []).map(table => {
-    const found = new RegExp(`\\b${escapeHtml(table)}\\b`, 'i').test(currentDdl);
+    const found = created.has(String(table).trim().toLowerCase());
     return `  <li class="schema-check-item ${found ? 'found' : 'missing'}">${found ? '🟢' : '⚪'} ${escapeHtml(table)}${found ? ' <span class="schema-check-status">criada</span>' : ' <span class="schema-check-status">pendente</span>'}</li>`;
   }).join('');
 

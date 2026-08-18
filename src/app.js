@@ -8,7 +8,9 @@ import { executeQuery } from './executor.js';
 import { getCaseById, isCaseAvailable, isCaseComplete, getInvestigations, getProjects } from './case-manager.js';
 import { validateLevel, FEEDBACK_CORRECT } from './validator.js';
 import { validateBugChallenge, BH_FEEDBACK_CORRECT, BH_FEEDBACK_BUG_NOT_FIXED } from './bug-hunter-validator.js';
-import { validateSchemaChallenge, SB_FEEDBACK_CORRECT, executeMultipleStatements } from './schema-builder-validator.js';
+import { validateSchemaChallenge, SB_FEEDBACK_CORRECT, SB_FEEDBACK_BLOCKED,
+         executeMultipleStatements, findForbiddenKeyword, mergeSchemaStatements,
+         getCreatedTableNames, splitStatements, getCreatedTableName } from './schema-builder-validator.js';
 import { buildReviewContext, requestAiSchemaReview } from './ai-schema-review.js';
 import { calculateStars, calculateTotalScore, calculateTotalStars, calculateMaxStars, updateLevelProgress } from './scoring.js';
 import { saveState, loadState } from './storage.js';
@@ -128,17 +130,6 @@ function getActiveSchemaDdl() {
   const challengeId = state.currentLevel;
   const saved = state.schemaBuilderDdl[challengeId];
   return Array.isArray(saved) ? saved.join('\n') : '';
-}
-
-/** Acumula uma instrução DDL no desafio Construtor de Schema ativo e persiste. */
-function appendActiveSchemaDdl(sql) {
-  const challengeId = state.currentLevel;
-  const trimmed = String(sql).trim();
-  if (!trimmed) return;
-  const existing = Array.isArray(state.schemaBuilderDdl[challengeId]) ? [...state.schemaBuilderDdl[challengeId]] : [];
-  existing.push(trimmed);
-  state.schemaBuilderDdl[challengeId] = existing;
-  persistState();
 }
 
 function getLockedMissionIds(caseDefinition, completedLevels = state.completedLevels) {
@@ -687,7 +678,7 @@ function loadSchemaChallenge(challengeId) {
   const ddlRestored = getActiveSchemaDdl();
   setEditorValue(ddlRestored);
 
-  renderSchemaChallenge(challenge, ddlRestored, state.completedLevels);
+  renderSchemaChallenge(challenge, ddlRestored, state.completedLevels, getCreatedTableNames(ddlRestored));
   renderSchemaHints(challenge, state.hintsRevealed);
   renderSchemaFeedback(null);
   renderSchemaEvidence(activeCase.SCHEMA_CHALLENGES, state.completedLevels);
@@ -1109,7 +1100,7 @@ function initBasicEvents() {
   }
 
   if (btnRun) {
-    btnRun.addEventListener('click', () => {
+    btnRun.addEventListener('click', async () => {
       const sql = getEditorValue();
       const db = getDB();
       if (!db) { setResults('<div class="feedback feedback-error">Banco não carregado.</div>'); return; }
@@ -1205,30 +1196,70 @@ function initBasicEvents() {
         const challenge = getActiveSchemaChallenge();
         if (!challenge) { setResults('<div class="feedback feedback-error">Nenhum desafio ativo.</div>'); return; }
 
-        const ddl = getActiveSchemaDdl();
-        const statement = sql.trim();
-        const fullDdl = statement ? (ddl ? `${ddl}\n${statement}` : statement) : ddl;
+        // 1. Bloqueia comandos proibidos ANTES de tocar no banco ou persistir
+        // qualquer coisa. Sem isso o comando roda, entra no modelo salvo e trava
+        // o desafio: toda validação seguinte reencontra a palavra proibida no
+        // DDL acumulado e devolve "bloqueado" para sempre.
+        const forbidden = findForbiddenKeyword(sql);
+        if (forbidden) {
+          const blockedFeedback = {
+            type: SB_FEEDBACK_BLOCKED,
+            message: `Comando "${forbidden}" não é permitido neste modo. Aqui você apenas cria tabelas (CREATE TABLE) e consulta.`,
+          };
+          renderSchemaFeedback(blockedFeedback);
+          state.lastValidationFeedback = blockedFeedback;
+          return;
+        }
 
-        // Aplica o editor no banco (várias instruções permitidas neste modo).
-        const { errors } = executeMultipleStatements(sql, db);
+        // 2. O modelo acumulado é a fonte da verdade. Um CREATE TABLE para uma
+        // tabela já presente substitui a definição anterior, o que permite ao
+        // jogador corrigir um erro sem recomeçar o desafio.
+        const mergedStatements = mergeSchemaStatements(state.schemaBuilderDdl[challenge.id], sql);
+        const updatedDdl = mergedStatements.join('\n');
+
+        // 3. Recria o banco vazio e aplica o modelo inteiro do zero. Sem isso, as
+        // instruções já aplicadas em execuções anteriores voltariam a rodar e
+        // falhariam com "table X already exists" já na segunda execução.
+        await initDB('schema-builder', { force: true });
+        const schemaDb = getDB();
+        if (!schemaDb) { setResults('<div class="feedback feedback-error">Banco não carregado.</div>'); return; }
+
+        const { errors } = executeMultipleStatements(updatedDdl, schemaDb);
         if (errors.length > 0) {
           renderSchemaFeedback({
             type: 'sql_error',
             message: `Erro na execução: ${errors[0].message}`,
           });
           state.lastValidationFeedback = { type: 'sql_error', message: errors[0].message };
-          persistState();
+          // Modelo com erro não é persistido: o jogador corrige e roda de novo.
           return;
         }
-        // Persiste o DDL aplicado e restaura no editor para o checklist acompanhar.
-        if (statement) appendActiveSchemaDdl(statement);
-        const updatedDdl = getActiveSchemaDdl();
+
+        // Só CREATE TABLE entra no modelo. O que sobra (uma consulta, ou um
+        // CREATE TABLE escrito errado) precisa rodar mesmo assim — caso contrário
+        // uma instrução inválida seria descartada em silêncio e o jogador veria
+        // "modelo validado" sem que o que ele digitou tivesse efeito algum.
+        const extraStatements = splitStatements(sql).filter(item => getCreatedTableName(item) === null);
+        if (extraStatements.length > 0) {
+          const extra = executeMultipleStatements(extraStatements.join('\n'), schemaDb);
+          if (extra.errors.length > 0) {
+            renderSchemaFeedback({
+              type: 'sql_error',
+              message: `Erro na execução: ${extra.errors[0].message}`,
+            });
+            state.lastValidationFeedback = { type: 'sql_error', message: extra.errors[0].message };
+            return;
+          }
+        }
+
+        // 4. Só agora o modelo válido é persistido e devolvido ao editor.
+        state.schemaBuilderDdl[challenge.id] = mergedStatements;
+        persistState();
         setEditorValue(updatedDdl);
-        renderSchemaChallenge(challenge, updatedDdl, state.completedLevels);
+        renderSchemaChallenge(challenge, updatedDdl, state.completedLevels, getCreatedTableNames(updatedDdl));
         setSchema(getSchemaText());
-        // O banco já contém o DDL aplicado acima; validar sem re-executar (evita
-        // "table X already exists" em execuções repetidas).
-        const feedback = validateSchemaChallenge(updatedDdl, challenge, db, { applyDdl: false });
+        // O banco já contém o modelo aplicado acima; validar por introspecção.
+        const feedback = validateSchemaChallenge(updatedDdl, challenge, schemaDb, { applyDdl: false });
         renderSchemaFeedback(feedback);
         state.lastValidationFeedback = {
           type: feedback.type,
@@ -1236,11 +1267,6 @@ function initBasicEvents() {
         };
 
         if (feedback.type === SB_FEEDBACK_CORRECT) {
-          // Persiste o DDL final do desafio concluído.
-          if (fullDdl) {
-            state.schemaBuilderDdl[challenge.id] = fullDdl.split('\n').filter(s => s.trim());
-          }
-
           const hintsUsed = state.hintsRevealed.length;
           const stars = calculateStars(hintsUsed);
 
@@ -1286,7 +1312,7 @@ function initBasicEvents() {
           }
         } else {
           // Mesmo em feedback negativo, o banco continua com o DDL aplicado para o jogador continuar.
-          try { renderSchemaDetailed(db); } catch { /* banco pode estar vazio */ }
+          try { renderSchemaDetailed(schemaDb); } catch { /* banco pode estar vazio */ }
           persistState();
         }
         return;

@@ -617,7 +617,8 @@ function sanitizeModelReview(review) {
   }
 
   // Rejeita instruções CREATE TABLE completas na resposta
-  if (/create\s+table\s+[\s\S]*?\(\s*\w+/i.test(trimmed)) {
+  const looksLikeFullDdl = /create\s+table\s+(?:if\s+not\s+exists\s+)?["'`\[]?\w+["'`\]]?\s*\(\s*(?:["'`\[]?\w+["'`\]]?\s+(?:INT|INTEGER|TEXT|REAL|BLOB|NUMERIC|VARCHAR|CHAR|DECIMAL|BOOLEAN|DATE|DATETIME|TIMESTAMP)\b|PRIMARY\s+KEY|FOREIGN\s+KEY)/i;
+  if (looksLikeFullDdl.test(trimmed)) {
     return { ok: false, reason: 'full_ddl' };
   }
 
