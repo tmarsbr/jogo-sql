@@ -24,6 +24,7 @@ import { SCHEMA_SQL as PROJ_PUBLICO_SCHEMA_SQL, SEED_SQL as PROJ_PUBLICO_SEED_SQ
 import { SCHEMA_SQL as PROJ_FUTEBOL_SCHEMA_SQL, SEED_SQL as PROJ_FUTEBOL_SEED_SQL } from './cases/proj-futebol/db-seed.js';
 import { SCHEMA_SQL as CASE005_SCHEMA_SQL, SEED_SQL as CASE005_SEED_SQL } from './cases/case005/db-seed.js';
 import { SCHEMA_SQL as CASE006_SCHEMA_SQL, SEED_SQL as CASE006_SEED_SQL } from './cases/case006/db-seed.js';
+import { SCHEMA_SQL as CLIENT_REAL_SCHEMA_SQL, SEED_SQL as CLIENT_REAL_SEED_SQL } from './cases/client-real/db-seed.js';
 
 /* --- Caminho do wasm --- */
 const WASM_PATH = 'vendor/sql-wasm.wasm';
@@ -251,6 +252,7 @@ function getCaseDatabaseDefinition(caseId) {
     // O modo Bug Hunter reutiliza o banco do Caso #001 (TechFin) para os desafios de debug.
     'bug-hunter': { schema: SCHEMA_SQL, seed: SEED_SQL },
     // O modo Construtor de Schema começa com o banco vazio — o jogador constrói tudo.
+    'client-real': { schema: CLIENT_REAL_SCHEMA_SQL, seed: CLIENT_REAL_SEED_SQL },
     'schema-builder': { schema: '', seed: '' },
   };
   return definitions[caseId] || definitions.case001;

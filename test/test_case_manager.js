@@ -36,6 +36,11 @@ const bugHunterLevels = {
   BUG_CHALLENGES: [],
 };
 const schemaBuilderLevels = loadSchemaBuilderChallenges();
+const clientRealLevels = evalModule(
+  [`const SCHEMA_SQL = ''; const SEED_SQL = '';`, transformESM(readSource('cases/client-real.js').replace(/^export\s*\{\s*SCHEMA_SQL,\s*SEED_SQL\s*\}\s*from\s*['"][^'"]+['"];?\s*$/gm, ''))].join('\n'),
+  {}, 'cases/client-real.js'
+);
+
 const managerCode = transformESM(readSource('case-manager.js'));
 const manager = evalModule(managerCode, {
   case001Levels: legacyLevels,
@@ -58,18 +63,21 @@ const manager = evalModule(managerCode, {
   projFutebolLevels: projFutebolLevels,
   bugHunterLevels: bugHunterLevels,
   schemaBuilderLevels: schemaBuilderLevels,
+  clientRealLevels: clientRealLevels,
 }, 'case-manager.js');
 
 console.log('\n=== Case Manager ===');
 const allCases = manager.getAllCases();
-assert(allCases.length === 20, 'Registry contém vinte cenários no total (6 investigações + 12 projetos + Bug Hunter + Construtor de Schema)');
+assert(allCases.length === 21, 'Registry contém vinte e um cenários no total (6 investigações + 12 projetos + Bug Hunter + Construtor de Schema + Cliente Real)');
+assert(manager.getCaseById('client-real')?.id === 'client-real' && manager.getCaseById('client-real').type === 'client-real', 'Modo Cliente Real registrado com id client-real');
+assert((manager.getCaseById('client-real').ENGAGEMENTS || []).length === 3, 'Modo Cliente Real expõe três consultorias');
 assert(
-  allCases.filter(item => !['bug-hunter', 'schema-builder'].includes(item.id)).every(item => item.DATABASE_ANALYSIS),
-  'Todos os casos (exceto Bug Hunter e Construtor de Schema) expõem a Etapa 0 de análise do banco',
+  allCases.filter(item => !['bug-hunter', 'schema-builder', 'client-real'].includes(item.id)).every(item => item.DATABASE_ANALYSIS),
+  'Todos os casos (exceto Bug Hunter, Construtor de Schema e Cliente Real) expõem a Etapa 0 de análise do banco',
 );
 assert(
-  manager.getInvestigations().length === 8 && manager.getInvestigations().some(item => item.id === 'bug-hunter') && manager.getInvestigations().some(item => item.id === 'schema-builder'),
-  'getInvestigations retorna 8 itens investigativos incluindo o Bug Hunter e o Construtor de Schema',
+  manager.getInvestigations().length === 9 && manager.getInvestigations().some(item => item.id === 'bug-hunter') && manager.getInvestigations().some(item => item.id === 'schema-builder') && manager.getInvestigations().some(item => item.id === 'client-real'),
+  'getInvestigations retorna 9 itens investigativos incluindo o Bug Hunter, o Construtor de Schema e o Cliente Real',
 );
 assert(manager.getProjects().length === 12, 'getProjects retorna 12 projetos de análise de dados');
 assert(manager.getCaseById('case005').number === '005' && manager.getCaseById('case006').number === '006', 'Novos casos mantêm numeração investigativa com três dígitos');

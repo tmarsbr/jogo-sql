@@ -8,6 +8,16 @@ import { executeQuery } from './executor.js';
 import { getCaseById, isCaseAvailable, isCaseComplete, getInvestigations, getProjects } from './case-manager.js';
 import { validateLevel, FEEDBACK_CORRECT, FEEDBACK_SQL_ERROR } from './validator.js';
 import { validateBugChallenge, BH_FEEDBACK_CORRECT, BH_FEEDBACK_BUG_NOT_FIXED } from './bug-hunter-validator.js';
+import {
+  renderClientRealBriefing, renderClientRealFeedback,
+  renderClientRealReportField, renderClientRealReportFeedback, renderClientRealInsight,
+} from './cases/client-real-ui.js';
+import { isClientRealId } from './cases/client-real-app.js';
+import { getClientRealProgress, updateClientRealEngagement } from './cases/client-real-app.js';
+import { validateClientRealAnalysis, validateClientRealReport,
+         validateClarification, computeEngagementScore, computeEngagementStars,
+         createEngagementState } from './cases/client-real-validator.js';
+
 import { validateSchemaChallenge, SB_FEEDBACK_CORRECT, SB_FEEDBACK_BLOCKED,
          executeMultipleStatements, findForbiddenKeyword, mergeSchemaStatements,
          getCreatedTableNames, splitStatements, getCreatedTableName } from './schema-builder-validator.js';
@@ -143,6 +153,18 @@ function getActiveSchemaDdl() {
   return Array.isArray(saved) ? saved.join('\n') : '';
 }
 
+
+/** Retorna a definição da consultoria do Cliente Real ativa. */
+function getActiveClientRealEngagement() {
+  const activeCase = getActiveCase();
+  if (activeCase.type !== 'client-real') return null;
+  const engagementId = state.currentLevel;
+  return (activeCase.ENGAGEMENTS || []).find(e => e.id === engagementId) || null;
+}
+/** Verifica se o cenário ativo é o modo Cliente Real. */
+function isClientRealMode() {
+  return getActiveCase().type === 'client-real';
+}
 /** Verifica se o cenário ativo é um step do Boss Fight. */
 function isBossFightMode() {
   return isBossStepId(state.currentLevel) && Boolean(getBattle(state.currentCase));
@@ -584,7 +606,11 @@ async function selectCase(caseId) {
  * Salva o estado atual no localStorage.
  */
 function persistState() {
+  // Preserva campos extras do caso ativo (ex.: {version, byId} do modo Cliente Real)
+  // que seriam sobrescritos pelo sync do progresso padrão.
+  const extraProgress = state.progressByCase[state.currentCase] || {};
   syncActiveCaseProgress();
+  state.progressByCase[state.currentCase] = { ...state.progressByCase[state.currentCase], ...extraProgress };
   saveState({
     currentCase: state.currentCase,
     progressByCase: state.progressByCase,
@@ -680,6 +706,13 @@ function restoreCompletedMissionViews(caseDefinition, db, completedLevels = stat
  */
 function loadMission(levelId) {
   const activeCase = getActiveCase();
+
+  // --- Modo Cliente Real: consultorias de três fases (ids 'cr-N') — sem LEVELS, sem lock ---
+  if (activeCase?.type === 'client-real') {
+    loadClientRealChallenge(levelId);
+    return;
+  }
+
   const lockedMissionIds = getLockedMissionIds(activeCase);
   if (lockedMissionIds.includes(levelId)) {
     const completed = new Set(state.completedLevels);
@@ -884,6 +917,87 @@ async function rebuildSchemaChallengeDb(ddl) {
   try { renderSchemaDetailed(db); } catch { /* banco vazio não gera diagrama */ }
 }
 
+
+/**
+ * Renderiza o progresso do modo Cliente Real (lista de consultorias atendidas).
+ * @param {object[]} engagements todas as consultorias
+ * @param {string} currentId id da consultoria ativa
+ * @param {number[]} completedLevels ids concluídos
+ */
+function renderClientRealProgress(engagements, currentId, completedLevels) {
+  const progressDisplay = document.getElementById('progress-display');
+  if (!progressDisplay) return;
+  let html = '<div class="progress-list">';
+  for (const engagement of engagements) {
+    const done = completedLevels.includes(engagement.id);
+    const active = engagement.id === currentId;
+    const cls = done ? 'progress-item completed' : active ? 'progress-item active' : 'progress-item';
+    const icon = done ? '✅' : active ? '💬' : '⬛';
+    html += `<div class="${cls}">${icon} <span class="progress-label">Consultoria ${engagement.number}: ${escapeHtml(engagement.title)}</span> <span class="progress-bug-tag">${escapeHtml(engagement.difficulty)}</span></div>`;
+  }
+  html += '</div>';
+  html += `<p class="progress-summary">${completedLevels.filter(id => id.startsWith('cr-')).length} de ${engagements.length} consultorias entregues</p>`;
+  progressDisplay.innerHTML = html;
+}
+
+/**
+ * Carrega uma consultoria do modo Cliente Real: briefing do cliente,
+ * fase atual (clarificar → analisar → apresentar) e painel correspondente.
+ * @param {string} engagementId id da consultoria ('cr-1' .. 'cr-N')
+ */
+function loadClientRealChallenge(engagementId) {
+  const activeCase = getActiveCase();
+  const engagements = activeCase.ENGAGEMENTS || [];
+  const engagement = engagements.find(e => e.id === engagementId) || engagements[0];
+  if (!engagement) return;
+  const engagementState = getClientRealProgress(state.progressByCase)[engagementId] || createEngagementState();
+  state.currentLevel = engagement.id;
+  state.hintsRevealed = [];
+  state.queryExecuted = false;
+  state.lastValidationFeedback = null;
+  state.hintRequestInFlight = false;
+  state.activeHintRequestToken = null;
+  document.dispatchEvent(new CustomEvent('mission-changed'));
+  const btnNext = document.getElementById('btn-next');
+  if (btnNext) btnNext.hidden = true;
+  const completedLevels = [...state.completedLevels];
+  setBriefing(renderClientRealBriefing(engagement, engagementState, completedLevels));
+  renderClientRealProgress(engagements, engagement.id, completedLevels);
+  renderHeaderProgress(completedLevels.filter(id => id.startsWith('cr-')).length, engagements.length);
+  renderScore(state.score, calculateTotalStars(state.levelProgress), calculateMaxStars(engagements.length));
+  configureSidebarTabs({ graph: false, timeline: false, suspects: false, lesson: false });
+  setHintButtonLoading(false);
+  enableHintButton(false);
+  setMissionStatus(`Consultoria ${engagement.number}: ${engagement.title}`);
+  const editorHelp = document.getElementById('editor-help');
+  if (editorHelp) editorHelp.textContent = 'Consulte o banco para responder ao cliente — depois apresente a análise em linguagem de negócio.';
+  const phase = engagementState.phase;
+  if (phase === 'analyze') {
+    enableEditorButtons(true);
+    clearEditor();
+    setResults('<p class="placeholder-text">Escreva a query no editor e execute para responder ao pedido do cliente.</p>');
+  } else if (phase === 'clarify') {
+    enableEditorButtons(false);
+    setEditorValue('');
+    setResults('<p class="placeholder-text">Responda à pergunta de clarificação no briefing antes de acessar o banco.</p>');
+  } else if (phase === 'report') {
+    enableEditorButtons(false);
+    setEditorValue('');
+    renderClientRealReportField(engagement.id, '');
+    setResults('');
+  } else if (phase === 'done') {
+    enableEditorButtons(false);
+    setEditorValue('');
+    setResults('<p class="placeholder-text">Consultoria entregue. Avance para a próxima ou explore o banco livremente.</p>');
+    const nextEngagement = engagements.find(e => Number(e.number) === Number(engagement.number) + 1);
+    if (nextEngagement && !completedLevels.includes(nextEngagement.id)) {
+      const btnNextEl = document.getElementById('btn-next');
+      if (btnNextEl) btnNextEl.hidden = false;
+    }
+  }
+  renderFromState();
+  persistState();
+}
 /**
  * Carrega um desafio do modo Bug Hunter: introdução do relatório,
  * lista de bugs, query defeituosa no editor e painel de correção.
@@ -1047,6 +1161,18 @@ async function init() {
     window.addEventListener('resize', syncResponsiveNavigation);
 
     document.addEventListener('click', (event) => {
+    const crAnswer = event.target?.closest?.('[data-cr-answer]');
+    if (crAnswer) {
+      handleClientRealClarification(crAnswer.dataset.crAnswer);
+      return;
+    }
+    const crReportSubmit = event.target?.closest?.('#client-real-report-submit');
+    if (crReportSubmit) {
+      const input = document.getElementById('client-real-report-input');
+      const report = input ? input.value : '';
+      handleClientRealReport(report);
+      return;
+    }
       const trigger = event.target?.closest?.('[data-open-course-lesson]');
       if (trigger) showCourseLesson(trigger.dataset.openCourseLesson);
     });
@@ -1200,6 +1326,15 @@ async function startGame(caseId = state.currentCase) {
       if (!savedChallenge || completed.has(savedChallenge.id) || !firstIncomplete) {
         levelToLoad = (firstIncomplete || challenges[challenges.length - 1]).id;
       }
+    } else if (isClientRealMode()) {
+      // Consultorias Cliente Real usam ids de string ('cr-1' .. 'cr-N').
+      const engagements = activeCase.ENGAGEMENTS || [];
+      const completed = new Set(state.completedLevels);
+      const firstIncomplete = engagements.find(e => !completed.has(e.id));
+      const savedEngagement = engagements.find(e => e.id === levelToLoad);
+      if (!savedEngagement || completed.has(savedEngagement.id) || !firstIncomplete) {
+        levelToLoad = (firstIncomplete || engagements[engagements.length - 1]).id;
+      }
     } else if (isSchemaBuilderMode()) {
       // Desafios Construtor de Schema usam ids numéricos (1..N), em sequência.
       const challenges = activeCase.SCHEMA_CHALLENGES || [];
@@ -1275,6 +1410,180 @@ function updateSoundButtonIcon() {
 /**
  * Registra event listeners dos botões.
  */
+
+
+/**
+ * Trata a resposta a uma pergunta de clarificação do Cliente Real.
+ * @param {string} payload 'engagementId|questionIndex|optionId'
+ */
+function handleClientRealClarification(payload) {
+  const parts = String(payload || '').split('|');
+  if (parts.length !== 3) return;
+  const [engagementId, questionIndexStr, optionId] = parts;
+  const engagement = (getActiveCase().ENGAGEMENTS || []).find(e => e.id === engagementId);
+  if (!engagement) return;
+  const questionIndex = Number(questionIndexStr);
+  const result = validateClarification(engagement, questionIndex, optionId);
+  updateClientRealEngagement(state.progressByCase, engagementId, (s) => {
+    s.clarificationAttempts += 1;
+    if (result.correct) s.clarificationCorrectCount += 1;
+    return s;
+  });
+  const feedbackContainer = document.getElementById('client-real-clarification-feedback');
+  if (feedbackContainer) {
+    feedbackContainer.innerHTML = '';
+    const cls = result.correct ? 'feedback feedback-success' : 'feedback feedback-warn';
+    const div = document.createElement('div');
+    div.className = cls;
+    div.textContent = result.feedback;
+    feedbackContainer.appendChild(div);
+  }
+  if (result.correct) {
+    playSuccessSound();
+    const nextQ = questionIndex + 1;
+    const allAnswered = nextQ >= (engagement.clarifications || []).length;
+    updateClientRealEngagement(state.progressByCase, engagementId, (s) => ({
+      ...s,
+      clarificationIndex: nextQ,
+      phase: allAnswered ? 'analyze' : 'clarify',
+    }));
+    const reloaded = getClientRealProgress(state.progressByCase)[engagementId];
+    setBriefing(renderClientRealBriefing(engagement, reloaded, [...state.completedLevels]));
+    if (allAnswered) {
+      enableEditorButtons(true);
+      clearEditor();
+      setResults('<p class="placeholder-text">Escopo entendido. Agora investigue o banco: escreva a query no editor e execute.</p>');
+    }
+    persistState();
+  } else {
+    playAlertSound();
+  }
+}
+
+/**
+ * Trata o clique em "Executar" no modo Cliente Real.
+ * - fase analyze: valida a query; no acerto revela insight e avança análise
+ *   (ou vai para a fase report quando a última análise é concluída);
+ * - fases clarify/report/done: executa a query livremente como exploração.
+ * @param {string} sql
+ * @param {object} db
+ * @param {object} activeCase
+ */
+async function handleClientRealRun(sql, db, activeCase) {
+  const engagement = getActiveClientRealEngagement();
+  if (!engagement) { setResults('<div class="feedback feedback-error">Nenhuma consultoria ativa.</div>'); return; }
+  const progress = getClientRealProgress(state.progressByCase);
+  const engagementState = progress[engagement.id] || null;
+  const phase = engagementState ? engagementState.phase : 'clarify';
+  if (phase === 'analyze') {
+    const analysis = (engagement.analyses || [])[engagementState.analysisIndex];
+    if (!analysis) { setResults('<div class="feedback feedback-error">Análise não encontrada.</div>'); return; }
+    const feedback = validateClientRealAnalysis(sql, analysis, db);
+    updateClientRealEngagement(state.progressByCase, engagement.id, (s) => {
+      s.analysisAttempts += 1;
+      if (feedback.type === FEEDBACK_SQL_ERROR) s.sqlErrors += 1;
+      return s;
+    });
+    if (feedback.result) {
+      renderResults(feedback.result);
+    }
+    state.lastValidationFeedback = {
+      type: feedback.type,
+      message: feedback.message,
+      missingConcepts: feedback.missingConcepts || undefined,
+      missingColumns: feedback.missingColumns || undefined,
+    };
+    renderClientRealFeedback({ type: feedback.type, message: feedback.message });
+    playTypingSound();
+    if (feedback.type === FEEDBACK_CORRECT) {
+      playSuccessSound();
+      renderClientRealInsight(analysis.insight);
+      const updatedState = getClientRealProgress(state.progressByCase)[engagement.id];
+      const nextIndex = updatedState.analysisIndex + 1;
+      const allAnalysesDone = nextIndex >= (engagement.analyses || []).length;
+      updateClientRealEngagement(state.progressByCase, engagement.id, (s) => ({
+        ...s,
+        analysisIndex: nextIndex,
+        phase: allAnalysesDone ? 'report' : 'analyze',
+      }));
+      const reloaded = getClientRealProgress(state.progressByCase)[engagement.id];
+      setBriefing(renderClientRealBriefing(engagement, reloaded, [...state.completedLevels]));
+      if (allAnalysesDone) {
+        renderClientRealReportField(engagement.id, '');
+        setResults('');
+      }
+      persistState();
+    }
+    return;
+  }
+  if (phase === 'report') {
+    setResults('<div class="feedback feedback-warn">Você já concluiu as análises. Escreva sua apresentação no campo "E-mail para o cliente" e clique em "Enviar análise ao cliente".</div>');
+    return;
+  }
+  const result = executeQuery(sql, db);
+  renderResults(result);
+}
+
+/**
+ * Trata o envio do relatório do Cliente Real (botão "Enviar análise ao cliente").
+ * @param {string} report texto do jogador
+ */
+async function handleClientRealReport(report) {
+  const engagement = getActiveClientRealEngagement();
+  if (!engagement) return;
+  const progress = getClientRealProgress(state.progressByCase);
+  const engagementState = progress[engagement.id] || null;
+  if (!engagementState || engagementState.phase !== 'report') return;
+  const feedback = validateClientRealReport(report, engagement);
+  updateClientRealEngagement(state.progressByCase, engagement.id, (s) => {
+    s.reportAttempts += 1;
+    return s;
+  });
+  const passed = feedback.passed;
+  renderClientRealReportFeedback(feedback, passed);
+  if (passed) {
+    playSuccessSound();
+    const scoreResult = computeEngagementScore(getClientRealProgress(state.progressByCase)[engagement.id], engagement);
+    const stars = computeEngagementStars(scoreResult.score);
+    const levelProgressResult = updateLevelProgress(state.levelProgress, engagement.id, stars, 0);
+    state.levelProgress = levelProgressResult.levelProgress;
+    state.score += scoreResult.score;
+    if (!state.completedLevels.includes(engagement.id)) {
+      state.completedLevels.push(engagement.id);
+      state.evidence = [...state.evidence, `cr-${engagement.id}-evidence`];
+      renderEvidence(state.evidence, getActiveCase().ENGAGEMENTS || [], [...state.completedLevels]);
+    }
+    updateClientRealEngagement(state.progressByCase, engagement.id, (s) => ({
+      ...s,
+      phase: 'done',
+      reportSubmitted: true,
+      reportPassed: true,
+      completedAt: new Date().toISOString(),
+    }));
+    const reloaded = getClientRealProgress(state.progressByCase)[engagement.id];
+    setBriefing(renderClientRealBriefing(engagement, reloaded, [...state.completedLevels]));
+    enableEditorButtons(false);
+    setEditorValue('');
+    renderClientRealProgress(getActiveCase().ENGAGEMENTS || [], engagement.id, [...state.completedLevels]);
+    renderScore(state.score, calculateTotalStars(state.levelProgress), calculateMaxStars((getActiveCase().ENGAGEMENTS || []).length));
+    renderHeaderProgress(state.completedLevels.filter(id => id.startsWith('cr-')).length, (getActiveCase().ENGAGEMENTS || []).length);
+    const nextEngagement = (getActiveCase().ENGAGEMENTS || []).find(e => Number(e.number) === Number(engagement.number) + 1);
+    if (nextEngagement && !state.completedLevels.includes(nextEngagement.id)) {
+      const btnNextEl = document.getElementById('btn-next');
+      if (btnNextEl) btnNextEl.hidden = false;
+    }
+    persistState();
+    const allDone = state.completedLevels.filter(id => id.startsWith('cr-')).length >= (getActiveCase().ENGAGEMENTS || []).length;
+    if (allDone) {
+      setTimeout(() => showActiveCaseConclusion(getActiveCase()), 600);
+    }
+  } else {
+    playAlertSound();
+  }
+}
+
+
+
 function initBasicEvents() {
   const btnRun = document.getElementById('btn-run');
   const btnClear = document.getElementById('btn-clear');
@@ -1460,6 +1769,17 @@ function initBasicEvents() {
             persistState();
             setTimeout(() => showActiveCaseConclusion(activeCase), 500);
           }
+        }
+        return;
+      }
+
+      // --- Modo Cliente Real: validação das fases da consultoria ---
+      if (isClientRealMode()) {
+        try {
+          await handleClientRealRun(sql, db, activeCase);
+        } catch (err) {
+          console.error('Erro na validação do Cliente Real:', err);
+          setResults('<div class="feedback feedback-error">Falha na validação. Tente novamente.</div>');
         }
         return;
       }
@@ -1904,6 +2224,17 @@ function initBasicEvents() {
         }
         return;
       }
+      if (isClientRealMode()) {
+        const engagement = getActiveClientRealEngagement();
+        if (!engagement) return;
+        const nextEngagement = (activeCase.ENGAGEMENTS || []).find(e => Number(e.number) === Number(engagement.number) + 1);
+        if (nextEngagement && !state.completedLevels.includes(nextEngagement.id)) {
+          loadMission(nextEngagement.id);
+          const btnNextEl = document.getElementById('btn-next');
+          if (btnNextEl) btnNextEl.hidden = true;
+        }
+        return;
+      }
       if (isSchemaBuilderMode()) {
         const challenge = getActiveSchemaChallenge();
         if (!challenge) return;
@@ -2195,6 +2526,17 @@ function dom_interrogationModal_visible() {
     restoreCompletedMissionViews,
     resetActiveCaseProgress,
     showCourseLesson,
+    loadClientRealChallenge,
+    isClientRealMode,
+  };
+  globalThis.__ClientRealApp = {
+    getClientRealProgress,
+    updateClientRealEngagement,
+    validateClientRealAnalysis,
+    validateClientRealReport,
+    validateClarification,
+    computeEngagementScore,
+    computeEngagementStars,
   };
 }
 

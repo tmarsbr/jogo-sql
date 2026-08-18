@@ -2821,3 +2821,214 @@ button {
   background: rgba(250, 204, 21, 0.07);
   color: #FCD34D;
 }
+
+/* ============================================================
+   Modo Cliente Real — Consultor de Dados
+   ============================================================ */
+.client-real-briefing {
+  border-color: rgba(245, 158, 11, 0.35);
+  background: linear-gradient(180deg, rgba(245, 158, 11, 0.05) 0%, rgba(15, 23, 42, 0.9) 60%);
+}
+.client-real-phase-client {
+  border: 1px solid rgba(245, 158, 11, 0.5);
+  color: #FCD34D;
+  background: rgba(245, 158, 11, 0.08);
+}
+.client-real-phase-analyze {
+  border: 1px solid rgba(0, 240, 255, 0.45);
+  color: var(--accent-cyan);
+  background: rgba(0, 240, 255, 0.07);
+}
+.client-real-phase-report {
+  border: 1px solid rgba(139, 92, 246, 0.5);
+  color: var(--accent-purple-light);
+  background: var(--accent-purple-subtle);
+}
+.client-real-phase-done {
+  border: 1px solid rgba(34, 197, 94, 0.5);
+  color: #4ADE80;
+  background: rgba(34, 197, 94, 0.08);
+}
+.client-real-client-card {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 14px;
+  margin: 14px 0 12px;
+  border: 1px solid rgba(148, 163, 184, 0.25);
+  border-left: 3px solid rgba(245, 158, 11, 0.7);
+  border-radius: 4px;
+  background: rgba(30, 41, 59, 0.55);
+  animation: rise 0.3s ease-out;
+}
+.client-real-client-avatar {
+  font-size: 2rem;
+  line-height: 1;
+  flex: 0 0 auto;
+}
+.client-real-client-name {
+  display: block;
+  font-size: 0.95rem;
+  color: var(--accent-cyan);
+}
+.client-real-client-role {
+  display: block;
+  font-family: var(--font-mono);
+  font-size: 0.7rem;
+  color: #94A3B8;
+  margin-top: 2px;
+}
+.client-real-client-tone {
+  display: block;
+  font-style: italic;
+  font-size: 0.78rem;
+  color: #CBD5E1;
+  margin-top: 4px;
+}
+.client-real-request-bubble {
+  position: relative;
+  padding: 14px 16px 14px 20px;
+  margin: 0 0 14px;
+  border: 1px solid rgba(245, 158, 11, 0.3);
+  border-radius: 4px 12px 12px 12px;
+  background: rgba(245, 158, 11, 0.045);
+  box-shadow: inset 3px 0 0 rgba(245, 158, 11, 0.55);
+}
+.client-real-request-quote {
+  white-space: pre-wrap;
+  font-size: 0.92rem;
+  line-height: 1.6;
+  color: #E2E8F0;
+}
+.client-real-request-bubble::after {
+  content: '';
+  position: absolute;
+  bottom: -8px;
+  left: 22px;
+  border-width: 8px 8px 0;
+  border-style: solid;
+  border-color: rgba(245, 158, 11, 0.35) transparent transparent;
+}
+.client-real-question {
+  margin-top: 12px;
+  animation: rise 0.3s ease-out;
+}
+.client-real-question strong {
+  display: block;
+  font-size: 0.85rem;
+  color: #F8FAFC;
+  margin-bottom: 10px;
+}
+.client-real-options {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.client-real-option {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  text-align: left;
+  padding: 10px 12px;
+  font-size: 0.84rem;
+  line-height: 1.5;
+  color: #E2E8F0;
+  background: rgba(30, 41, 59, 0.6);
+  border: 1px solid rgba(148, 163, 184, 0.3);
+  border-radius: 4px;
+  cursor: pointer;
+  transition: border-color 0.15s, background 0.15s;
+}
+.client-real-option:hover {
+  border-color: rgba(0, 240, 255, 0.5);
+  background: rgba(0, 240, 255, 0.05);
+}
+.client-real-option-letter {
+  flex: 0 0 auto;
+  font-family: var(--font-mono);
+  font-weight: 700;
+  font-size: 0.75rem;
+  color: var(--accent-cyan);
+  border: 1px solid rgba(0, 240, 255, 0.4);
+  border-radius: 3px;
+  padding: 1px 7px;
+}
+#client-real-clarification-feedback .feedback {
+  margin-top: 10px;
+}
+.client-real-hint-text {
+  margin-top: 10px;
+  font-size: 0.78rem;
+  font-style: italic;
+  color: #94A3B8;
+}
+.client-real-done-text {
+  margin-top: 12px;
+  font-size: 0.85rem;
+  color: #4ADE80;
+}
+.client-real-insight {
+  margin-top: 10px;
+}
+.client-real-report-box {
+  margin-top: 14px;
+  animation: rise 0.3s ease-out;
+}
+.client-real-report-topbar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  border: 1px solid rgba(139, 92, 246, 0.4);
+  border-bottom: none;
+  border-radius: 4px 4px 0 0;
+  background: rgba(139, 92, 246, 0.08);
+}
+.client-real-report-input {
+  width: 100%;
+  min-height: 110px;
+  padding: 12px 14px;
+  font-family: var(--font-mono);
+  font-size: 0.85rem;
+  line-height: 1.6;
+  color: #E2E8F0;
+  background: rgba(15, 23, 42, 0.9);
+  border: 1px solid rgba(139, 92, 246, 0.4);
+  border-radius: 0 0 4px 4px;
+  resize: vertical;
+  outline: none;
+}
+.client-real-report-input:focus {
+  border-color: rgba(139, 92, 246, 0.75);
+}
+.client-real-report-box #client-real-report-submit {
+  margin-top: 10px;
+}
+.client-real-report-box #client-real-report-feedback .feedback {
+  margin-top: 10px;
+}
+.client-real-progress {
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid rgba(148, 163, 184, 0.15);
+}
+.client-real-progress-bar {
+  height: 6px;
+  border-radius: 3px;
+  background: rgba(30, 41, 59, 0.8);
+  border: 1px solid rgba(148, 163, 184, 0.2);
+  overflow: hidden;
+}
+.client-real-progress-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #F59E0B, #FCD34D);
+  transition: width 0.35s ease;
+}
+.client-real-progress-label {
+  display: block;
+  font-family: var(--font-mono);
+  font-size: 0.68rem;
+  color: #94A3B8;
+  margin-top: 6px;
+  letter-spacing: 0.06em;
+}

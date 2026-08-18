@@ -277,6 +277,10 @@ function loadAppWithMocks() {
       BUG_CHALLENGES: [],
     },
     schemaBuilderLevels: loadLevelsFrom('cases/schema-challenges.js'),
+    clientRealLevels: evalModule(
+      [`const SCHEMA_SQL = ''; const SEED_SQL = '';`, transformESM(readSource('cases/client-real.js').replace(/^export\s*\{\s*SCHEMA_SQL,\s*SEED_SQL\s*\}\s*from\s*['"][^'"]+['"];?\s*$/gm, ''))].join('\n'),
+      {}, 'cases/client-real.js'
+    ),
   });
 
   // er-diagram e ai-hints puros

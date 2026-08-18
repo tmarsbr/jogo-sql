@@ -22,6 +22,7 @@ import * as case005Levels from './cases/case005/levels.js';
 import * as case006Levels from './cases/case006/levels.js';
 import * as bugHunterLevels from './cases/bug-hunter.js';
 import * as schemaBuilderLevels from './cases/schema-challenges.js';
+import * as clientRealLevels from './cases/client-real.js';
 
 export const CASE_REGISTRY = [
   {
@@ -160,12 +161,25 @@ export const CASE_REGISTRY = [
     },
     ...schemaBuilderLevels,
   },
+  {
+    id: 'client-real', number: 'CR', icon: '🤝', lockedByDefault: false, type: 'client-real',
+    title: 'Modo Cliente Real: Consultor de Dados', category: 'Comunicação Técnica',
+    description: 'Atenda consultorias de clientes com pedidos vagos: clarifique o escopo, escolha as queries certas e apresente a análise em linguagem de negócio. Treina comunicação técnica.',
+    CASE_INTRO: {
+      title: clientRealLevels.CLIENT_REAL_INTRO.title,
+      subtitle: clientRealLevels.CLIENT_REAL_INTRO.subtitle,
+      story: clientRealLevels.CLIENT_REAL_INTRO.story,
+      mission: clientRealLevels.CLIENT_REAL_INTRO.mission,
+    },
+    CASE_CONCLUSION: clientRealLevels.CLIENT_REAL_CONCLUSION,
+    ...clientRealLevels,
+  },
 ];
 
 export function getAllCases() { return CASE_REGISTRY; }
 
 export function getInvestigations() {
-  return CASE_REGISTRY.filter(item => item.type === 'investigation' || !item.type || item.type === 'bug-hunter' || item.type === 'schema-builder');
+  return CASE_REGISTRY.filter(item => item.type === 'investigation' || !item.type || item.type === 'bug-hunter' || item.type === 'schema-builder' || item.type === 'client-real');
 }
 
 export function getProjects() {
@@ -186,6 +200,11 @@ export function isCaseComplete(caseDefinition, progressByCase = {}) {
     return (caseDefinition.BUG_CHALLENGES || []).every(challenge => completed.has(challenge.id));
   }
 
+  // Modo Cliente Real: conclui quando todas as consultorias foram entregues.
+  if (caseDefinition.type === 'client-real') {
+    const completed = new Set(progress.completedLevels);
+    return (caseDefinition.ENGAGEMENTS || []).every(e => completed.has(e.id));
+  }
   // Modo Construtor de Schema: conclui quando todos os desafios de modelagem foram concluídos.
   if (caseDefinition.type === 'schema-builder') {
     const completed = new Set(progress.completedLevels);
@@ -217,7 +236,7 @@ export function getAvailableCases(progressByCase = {}) {
   // Modos especiais (ex.: bug-hunter e schema-builder) desbloqueiam por disponibilidade própria,
   // sem depender do encadeamento investigativo.
   const specialModes = CASE_REGISTRY.filter(item =>
-    (item.type === 'bug-hunter' || item.type === 'schema-builder') && !item.lockedByDefault
+    (item.type === 'bug-hunter' || item.type === 'schema-builder' || item.type === 'client-real') && !item.lockedByDefault
   );
 
   return [...availableInvestigations, ...specialModes, ...availableProjects];
