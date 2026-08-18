@@ -34,6 +34,7 @@ function getDefaultCaseProgress() {
     lessonsRead: [],
     schemaBuilderDdl: {},
     completedAt: null,
+    bossFight: {},
   };
 }
 
@@ -41,7 +42,7 @@ export function getDefaultState() {
   const case001 = getDefaultCaseProgress();
   const bugHunter = getDefaultCaseProgress();
   const schemaBuilder = getDefaultCaseProgress();
-  return { currentCase: 'case001', progressByCase: { case001, 'bug-hunter': bugHunter, 'schema-builder': schemaBuilder }, ...case001 };
+  return { currentCase: 'case001', progressByCase: { case001, 'bug-hunter': bugHunter, 'schema-builder': schemaBuilder }, bossByCase: {}, ...case001 };
 }
 
 function isLocalStorageAvailable() {
@@ -119,6 +120,29 @@ function validateCaseProgress(data) {
     result.completedAt = new Date(data.completedAt).toISOString();
   }
 
+  // --- Gameplay: boss fight (estado de batalha por caso) ---
+  if (data.bossFight && typeof data.bossFight === 'object' && !Array.isArray(data.bossFight)) {
+    for (const key of Object.keys(data.bossFight)) {
+      if (typeof key !== 'string') continue;
+      const bf = data.bossFight[key];
+      if (!bf || typeof bf !== 'object' || Array.isArray(bf)) continue;
+      const status = ['available', 'active', 'won'].includes(bf.status) ? bf.status : 'available';
+      const startedAt = typeof bf.startedAt === 'string' && Number.isFinite(Date.parse(bf.startedAt))
+        ? new Date(bf.startedAt).toISOString() : null;
+      const timerElapsedMs = Number.isInteger(bf.timerElapsedMs) && bf.timerElapsedMs >= 0 ? bf.timerElapsedMs : 0;
+      const executionAttempts = Number.isInteger(bf.executionAttempts) && bf.executionAttempts >= 0 ? bf.executionAttempts : 0;
+      const sqlErrors = Number.isInteger(bf.sqlErrors) && bf.sqlErrors >= 0 ? bf.sqlErrors : 0;
+      const completedSteps = Array.isArray(bf.completedSteps)
+        ? [...new Set(bf.completedSteps.filter(id => typeof id === 'string'))]
+        : [];
+      const scoreAwarded = Number.isInteger(bf.scoreAwarded) ? bf.scoreAwarded : null;
+      const completedAt = typeof bf.completedAt === 'string' && Number.isFinite(Date.parse(bf.completedAt))
+        ? new Date(bf.completedAt).toISOString() : null;
+      result.bossFight[key] = { status, startedAt, timerElapsedMs, executionAttempts, sqlErrors, completedSteps, scoreAwarded, completedAt };
+    }
+  }
+  if (!result.bossFight) result.bossFight = {};
+
   return result;
 }
 
@@ -135,7 +159,17 @@ function normalizeState(data) {
   if (!progressByCase.case001) progressByCase.case001 = validateCaseProgress(data);
   const currentCase = typeof data.currentCase === 'string' && KNOWN_CASE_IDS.has(data.currentCase) ? data.currentCase : 'case001';
   if (!progressByCase[currentCase]) progressByCase[currentCase] = getDefaultCaseProgress();
-  return { currentCase, progressByCase, ...progressByCase[currentCase] };
+  // Gameplay: estado das batalhas de boss por caso (nível superior do estado).
+  const bossByCase = {};
+  if (data.bossByCase && typeof data.bossByCase === 'object' && !Array.isArray(data.bossByCase)) {
+    for (const caseId of Object.keys(data.bossByCase)) {
+      const bf = data.bossByCase[caseId];
+      if (bf && typeof bf === 'object' && !Array.isArray(bf)) {
+        bossByCase[caseId] = validateCaseProgress({ bossFight: { [caseId]: bf } }).bossFight[caseId] || null;
+      }
+    }
+  }
+  return { currentCase, progressByCase, bossByCase, ...progressByCase[currentCase] };
 }
 
 function hasProgress(progress) {
@@ -151,6 +185,8 @@ function hasProgress(progress) {
     || (progress.interrogation && progress.interrogation.status !== 'locked')
     || (progress.lessonsRead && progress.lessonsRead.length > 0)
     || progress.completedAt !== null
+    || (progress.bossFight && typeof progress.bossFight === 'object'
+        && Object.values(progress.bossFight).some(bf => bf && bf.status !== 'available'))
   ));
 }
 
@@ -185,9 +221,17 @@ function serializeState(stateData) {
       lessonsRead: stateData.lessonsRead,
       schemaBuilderDdl: stateData.schemaBuilderDdl,
       completedAt: stateData.completedAt,
+      // Espelho do caso ativo: bossFight do caso atual para leitura via progressByCase.
+      bossFight: (stateData.bossByCase && typeof stateData.bossByCase === 'object')
+        ? { [normalized.currentCase]: stateData.bossByCase[normalized.currentCase] || {} }
+        : {},
     });
   }
-  return { currentCase: normalized.currentCase, progressByCase: normalized.progressByCase };
+  // Fonte de verdade das batalhas de boss: nível superior do LS, incluindo casos vazios
+  // quando o estado ativo possui o espelho (evita perda ao regravar).
+  const hasBossMirror = stateData.bossByCase && typeof stateData.bossByCase === 'object' && !Array.isArray(stateData.bossByCase);
+  const bossByCase = hasBossMirror ? stateData.bossByCase : (normalized.bossByCase || {});
+  return { currentCase: normalized.currentCase, progressByCase: normalized.progressByCase, bossByCase };
 }
 
 export function saveState(stateData) {
@@ -221,7 +265,7 @@ export function loadState() {
   // A chave v2 e canônica; depois de ler com segurança, descartamos v1 residual.
   if (rawV1 !== null || (!v2 && legacy)) {
     try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify({ currentCase: result.currentCase, progressByCase: result.progressByCase }));
+      localStorage.setItem(STORAGE_KEY, JSON.stringify({ currentCase: result.currentCase, progressByCase: result.progressByCase, bossByCase: result.bossByCase || {} }));
       localStorage.removeItem(LEGACY_STORAGE_KEY);
     } catch (error) {
       console.warn('Nao foi possivel concluir a migracao do progresso:', error);

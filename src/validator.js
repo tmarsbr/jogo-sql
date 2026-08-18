@@ -91,7 +91,13 @@ function findMissingConcepts(sql, concepts) {
   const lower = cleaned.toLowerCase();
   const missing = [];
   for (const concept of concepts) {
-    if (concept === 'subquery') {
+    if (concept === 'arithmetic') {
+      // Não há uma palavra-chave SQL para aritmética: reconhece um operador
+      // entre operandos depois de strings e comentários serem removidos.
+      if (!/[\w.)]\s*[+*/-]\s*[\w.(]/i.test(cleaned)) {
+        missing.push(concept);
+      }
+    } else if (concept === 'subquery') {
       // Subquery é um conceito estrutural: SELECT dentro de parênteses
       // que NÃO seja parte de uma CTE (WITH ... AS (SELECT ...)).
       // Remove o bloco WITH inteiro antes de procurar subquery.

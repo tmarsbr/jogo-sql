@@ -76,6 +76,9 @@ export const state = {
 
   /** @type {Object<number, string[]>} DDL acumulado por desafio do Construtor de Schema */
   schemaBuilderDdl: {},
+
+  /** @type {Object<string, object>} estado do Boss Fight por caso (bônus pós-caso) */
+  bossByCase: {},
 };
 
 /**
@@ -107,6 +110,7 @@ export function resetState() {
   state.lessonsRead = [];
   state.completedAt = null;
   state.schemaBuilderDdl = {};
+  state.bossByCase = {};
 }
 
 /** Cria a estrutura de progresso de um caso ainda não iniciado. */
@@ -118,6 +122,7 @@ export function createCaseProgress() {
     lessonsRead: [],
     schemaBuilderDdl: {},
     completedAt: null,
+    bossFight: {},
   };
 }
 
@@ -140,6 +145,7 @@ export function activateCaseProgress(caseId) {
   state.lessonsRead = [...(progress.lessonsRead || [])];
   state.completedAt = progress.completedAt || null;
   state.schemaBuilderDdl = { ...(progress.schemaBuilderDdl || {}) };
+  state.bossByCase = { ...(progress.bossFight || {}) };
 }
 
 /** Persiste os campos ativos no mapa de progresso por caso. */
@@ -159,5 +165,6 @@ export function syncActiveCaseProgress() {
     lessonsRead: [...(state.lessonsRead || [])],
     schemaBuilderDdl: { ...state.schemaBuilderDdl },
     completedAt: state.completedAt || null,
+    bossFight: { ...state.bossByCase },
   };
 }

@@ -288,6 +288,20 @@ function loadAppWithMocks() {
   // state.js real
   const stateModule = evalModule(transformESM(readSource('state.js')), {}, 'state.js');
 
+  // --- Boss Fight: módulo puro (depende apenas de boss-definitions e validator) ---
+  const bossFightModule = (() => {
+    let code = transformESM(readSource('boss-fight.js'));
+    // Redireciona o import do validator para o validador já carregado no teste
+    // (evita recarregar o módulo real com dependências não mockadas).
+    code = code.replace(/from\s+['"]\.\/validator\.js['"];?\s*$/gm, '');
+    return evalModule(code, {
+      BATTLE_BY_CASE: undefined,
+      BOSS_STEP_PREFIX: 'boss-',
+      validateLevel: validator.validateLevel,
+      FEEDBACK_CORRECT: validator.FEEDBACK_CORRECT,
+    }, 'boss-fight.js');
+  })();
+
   const appRaw = readSource('app.js');
   let appCode = removeImportStatements(transformESM(appRaw));
 
@@ -392,6 +406,30 @@ function loadAppWithMocks() {
     normalizeInterrogationState: interrogation.normalizeInterrogationState,
     renderGraphSVG: suspectGraph.renderGraphSVG,
     buildGraphState: suspectGraph.buildGraphState,
+
+    // --- Boss Fight (app.js importa nomeadamente de boss-fight.js e ui.js) ---
+    getBattle: bossFightModule.getBattle,
+    isBossCase: bossFightModule.isBossCase,
+    isBossStepId: bossFightModule.isBossStepId,
+    isBossAvailable: bossFightModule.isBossAvailable,
+    getActiveStep: bossFightModule.getActiveStep,
+    normalizeBossState: bossFightModule.normalizeBossState,
+    startBattle: bossFightModule.startBattle,
+    validateBossStep: bossFightModule.validateBossStep,
+    completeStep: bossFightModule.completeStep,
+    isBattleWon: bossFightModule.isBattleWon,
+    winBattle: bossFightModule.winBattle,
+    elapsedMs: bossFightModule.elapsedMs,
+    computeBossScore: bossFightModule.computeBossScore,
+    computeBossStars: bossFightModule.computeBossStars,
+    renderBossBriefing: () => {},
+    renderBossRail: () => {},
+    updateBossTimerReadout: () => {},
+    renderBossHintsBanner: () => {},
+    showBossInvitation: () => {},
+    showBossVictoryModal: () => {},
+    hideBossVictoryModal: () => {},
+    renderBossFeedback: () => {},
   };
 
   // Remove os stubs automáticos do novo transformESM (const name = 'name'; e
