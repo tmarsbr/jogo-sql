@@ -8,6 +8,8 @@ import { executeQuery } from './executor.js';
 import { getCaseById, isCaseAvailable, isCaseComplete, getInvestigations, getProjects } from './case-manager.js';
 import { validateLevel, FEEDBACK_CORRECT } from './validator.js';
 import { validateBugChallenge, BH_FEEDBACK_CORRECT, BH_FEEDBACK_BUG_NOT_FIXED } from './bug-hunter-validator.js';
+import { validateSchemaChallenge, SB_FEEDBACK_CORRECT, executeMultipleStatements } from './schema-builder-validator.js';
+import { buildReviewContext, requestAiSchemaReview } from './ai-schema-review.js';
 import { calculateStars, calculateTotalScore, calculateTotalStars, calculateMaxStars, updateLevelProgress } from './scoring.js';
 import { saveState, loadState } from './storage.js';
 import {
@@ -63,6 +65,13 @@ import {
   renderBugEvidence,
   renderBugProgress,
   renderBugRail,
+  renderSchemaChallenge,
+  renderSchemaHints,
+  renderSchemaFeedback,
+  renderSchemaEvidence,
+  renderSchemaProgress,
+  renderSchemaRail,
+  setAiReviewButtonLoading,
   configureSidebarTabs,
   updateLessonTabBadge,
   setLesson,
@@ -99,6 +108,37 @@ function getActiveBugChallenge() {
 /** Verifica se o cenário ativo é o modo Bug Hunter. */
 function isBugHunterMode() {
   return getActiveCase().type === 'bug-hunter';
+}
+
+/** Retorna a definição do desafio Construtor de Schema ativo. */
+function getActiveSchemaChallenge() {
+  const activeCase = getActiveCase();
+  if (activeCase.type !== 'schema-builder') return null;
+  const challengeId = state.currentLevel;
+  return (activeCase.SCHEMA_CHALLENGES || []).find(c => c.id === challengeId) || null;
+}
+
+/** Verifica se o cenário ativo é o modo Construtor de Schema. */
+function isSchemaBuilderMode() {
+  return getActiveCase().type === 'schema-builder';
+}
+
+/** Obtém o DDL acumulado do desafio Construtor de Schema ativo. */
+function getActiveSchemaDdl() {
+  const challengeId = state.currentLevel;
+  const saved = state.schemaBuilderDdl[challengeId];
+  return Array.isArray(saved) ? saved.join('\n') : '';
+}
+
+/** Acumula uma instrução DDL no desafio Construtor de Schema ativo e persiste. */
+function appendActiveSchemaDdl(sql) {
+  const challengeId = state.currentLevel;
+  const trimmed = String(sql).trim();
+  if (!trimmed) return;
+  const existing = Array.isArray(state.schemaBuilderDdl[challengeId]) ? [...state.schemaBuilderDdl[challengeId]] : [];
+  existing.push(trimmed);
+  state.schemaBuilderDdl[challengeId] = existing;
+  persistState();
 }
 
 function getLockedMissionIds(caseDefinition, completedLevels = state.completedLevels) {
@@ -382,6 +422,20 @@ async function selectCase(caseId) {
   if (!state.progressByCase[caseId]) state.progressByCase[caseId] = createCaseProgress();
   activateCaseProgress(caseId);
   configureIntro(getActiveCase());
+
+  // Botões de assistência exclusivos do modo Construtor de Schema.
+  const buttonAiReview = document.getElementById('btn-ai-review');
+  const buttonHint = document.getElementById('btn-hint');
+  const willUseSchemaButtons = getActiveCase()?.type === 'schema-builder';
+  if (buttonAiReview) buttonAiReview.hidden = !willUseSchemaButtons;
+  if (buttonHint) {
+    if (!willUseSchemaButtons && getActiveCase()?.type !== 'bug-hunter') {
+      buttonHint.hidden = true;
+    }
+    if (buttonHint.textContent.startsWith('REVELAR DICA')) {
+      buttonHint.textContent = 'SOLICITAR DICA (3 RESTANTES)';
+    }
+  }
   persistState();
   hideDatabaseAnalysis();
   hideCaseSelection();
@@ -407,6 +461,7 @@ function persistState() {
     bonusPoints: state.bonusPoints,
     interrogation: state.interrogation,
     lessonsRead: state.lessonsRead,
+    schemaBuilderDdl: state.schemaBuilderDdl,
     completedAt: state.completedAt,
   });
 }
@@ -496,6 +551,12 @@ function loadMission(levelId) {
   // --- Modo Bug Hunter: desafios de debug (ids de string 'bug-N') ---
   if (activeCase.type === 'bug-hunter') {
     loadBugChallenge(levelId);
+    return;
+  }
+
+  // --- Modo Construtor de Schema: desafios de modelagem (ids numéricos) ---
+  if (activeCase.type === 'schema-builder') {
+    loadSchemaChallenge(levelId);
     return;
   }
 
@@ -603,7 +664,84 @@ function loadMission(levelId) {
 }
 
 /**
- * Carrega um desafio do modo Bug Hunter: briefing do relatório quebrado,
+ * Carrega um desafio do modo Construtor de Schema: briefing com requisitos
+ * em linguagem natural, banco vazio e DDL acumulado restaurado do progresso.
+ * @param {number} challengeId id numérico do desafio (1..6)
+ */
+function loadSchemaChallenge(challengeId) {
+  const activeCase = getActiveCase();
+  const challenges = activeCase.SCHEMA_CHALLENGES || [];
+  const challenge = challenges.find(c => c.id === challengeId) || challenges[0];
+  if (!challenge) return;
+
+  state.currentLevel = challenge.id;
+  state.hintsRevealed = [];
+  state.queryExecuted = false;
+  state.lastValidationFeedback = null;
+  state.hintRequestInFlight = false;
+  state.activeHintRequestToken = null;
+  document.dispatchEvent(new CustomEvent('mission-changed'));
+  const btnNext = document.getElementById('btn-next');
+  if (btnNext) btnNext.hidden = true;
+
+  const ddlRestored = getActiveSchemaDdl();
+  setEditorValue(ddlRestored);
+
+  renderSchemaChallenge(challenge, ddlRestored, state.completedLevels);
+  renderSchemaHints(challenge, state.hintsRevealed);
+  renderSchemaFeedback(null);
+  renderSchemaEvidence(activeCase.SCHEMA_CHALLENGES, state.completedLevels);
+  renderSchemaProgress(activeCase.SCHEMA_CHALLENGES, challenge.id, state.completedLevels, state.levelProgress);
+  renderSchemaRail(activeCase.SCHEMA_CHALLENGES, state.currentLevel, state.completedLevels, (id) => loadMission(id));
+  renderScore(state.score, calculateTotalStars(state.levelProgress), calculateMaxStars(activeCase.SCHEMA_CHALLENGES.length));
+  renderHeaderProgress(state.completedLevels.length, activeCase.SCHEMA_CHALLENGES.length);
+
+  configureSidebarTabs({
+    graph: false,
+    timeline: false,
+    suspects: false,
+    lesson: false,
+  });
+
+  const schemaButtonHint = document.getElementById('btn-hint');
+  const schemaButtonAiReview = document.getElementById('btn-ai-review');
+  if (schemaButtonHint) schemaButtonHint.hidden = false;
+  if (schemaButtonAiReview) schemaButtonAiReview.hidden = false;
+
+  if (ddlRestored) {
+    // Recria o banco do desafio com o DDL salvo, sem tocar no progresso.
+    rebuildSchemaChallengeDb(ddlRestored).catch((err) => {
+      console.error('Erro ao reconstruir banco do desafio:', err);
+      setDbStatus('error', 'Banco: erro ao restaurar');
+    });
+  } else {
+    initDB('schema-builder', { force: true }).then(() => {
+      enableHintButton(true);
+    }).catch((err) => {
+      console.error('Erro ao iniciar banco do desafio:', err);
+      setDbStatus('error', 'Banco: erro');
+    });
+  }
+  if (ddlRestored) enableHintButton(true);
+}
+
+/**
+ * Reconstrói o banco do desafio com o DDL salvo.
+ * Não modifica estado de conclusão — apenas recria o cenário de trabalho.
+ * @param {string} ddl DDL acumulado
+ * @returns {Promise<void>}
+ */
+async function rebuildSchemaChallengeDb(ddl) {
+  await initDB('schema-builder', { force: true });
+  const db = getDB();
+  db.run(ddl);
+  setSchema(getSchemaText());
+  setDbStatus('ok', `Banco: ${state.completedLevels.includes(state.currentLevel) ? 'concluído' : 'em construção'}`);
+  try { renderSchemaDetailed(db); } catch { /* banco vazio não gera diagrama */ }
+}
+
+/**
+ * Carrega um desafio do modo Bug Hunter: introdução do relatório,
  * lista de bugs, query defeituosa no editor e painel de correção.
  * @param {string} challengeId id do desafio ('bug-1' ... 'bug-N')
  */
@@ -901,6 +1039,15 @@ async function startGame(caseId = state.currentCase) {
       if (!savedChallenge || completed.has(savedChallenge.id) || !firstIncomplete) {
         levelToLoad = (firstIncomplete || challenges[challenges.length - 1]).id;
       }
+    } else if (isSchemaBuilderMode()) {
+      // Desafios Construtor de Schema usam ids numéricos (1..N), em sequência.
+      const challenges = activeCase.SCHEMA_CHALLENGES || [];
+      const completed = new Set(state.completedLevels);
+      const firstIncomplete = challenges.find(challenge => !completed.has(challenge.id));
+      const savedChallenge = challenges.find(challenge => challenge.id === levelToLoad);
+      if (!savedChallenge || completed.has(savedChallenge.id) || !firstIncomplete) {
+        levelToLoad = (firstIncomplete || challenges[challenges.length - 1]).id;
+      }
     } else {
       const invalidSavedLevel = !Number.isInteger(levelToLoad) || levelToLoad < 1 || levelToLoad > totalLevels;
       if (invalidSavedLevel || (state.completedLevels.includes(levelToLoad) && levelToLoad < totalLevels)) {
@@ -940,6 +1087,7 @@ function initBasicEvents() {
   const btnRun = document.getElementById('btn-run');
   const btnClear = document.getElementById('btn-clear');
   const btnHint = document.getElementById('btn-hint');
+  const btnAiReview = document.getElementById('btn-ai-review');
   const btnNext = document.getElementById('btn-next');
   const btnReset = document.getElementById('btn-reset');
   const btnResetConfirm = document.getElementById('btn-reset-confirm');
@@ -1035,7 +1183,7 @@ function initBasicEvents() {
           }
 
           const nextChallenge = (activeCase.BUG_CHALLENGES || [])
-            .find(ch => ch.number === challenge.number + 1);
+            .find(ch => Number(ch.number) === Number(challenge.number) + 1);
           if (nextChallenge && !state.completedLevels.includes(nextChallenge.id)) {
             const btnNextEl = document.getElementById('btn-next');
             if (btnNextEl) btnNextEl.hidden = false;
@@ -1048,6 +1196,98 @@ function initBasicEvents() {
             persistState();
             setTimeout(() => showActiveCaseConclusion(activeCase), 500);
           }
+        }
+        return;
+      }
+
+      // --- Modo Construtor de Schema: validação do modelo de dados ---
+      if (isSchemaBuilderMode()) {
+        const challenge = getActiveSchemaChallenge();
+        if (!challenge) { setResults('<div class="feedback feedback-error">Nenhum desafio ativo.</div>'); return; }
+
+        const ddl = getActiveSchemaDdl();
+        const statement = sql.trim();
+        const fullDdl = statement ? (ddl ? `${ddl}\n${statement}` : statement) : ddl;
+
+        // Aplica o editor no banco (várias instruções permitidas neste modo).
+        const { errors } = executeMultipleStatements(sql, db);
+        if (errors.length > 0) {
+          renderSchemaFeedback({
+            type: 'sql_error',
+            message: `Erro na execução: ${errors[0].message}`,
+          });
+          state.lastValidationFeedback = { type: 'sql_error', message: errors[0].message };
+          persistState();
+          return;
+        }
+        // Persiste o DDL aplicado e restaura no editor para o checklist acompanhar.
+        if (statement) appendActiveSchemaDdl(statement);
+        const updatedDdl = getActiveSchemaDdl();
+        setEditorValue(updatedDdl);
+        renderSchemaChallenge(challenge, updatedDdl, state.completedLevels);
+        setSchema(getSchemaText());
+        // O banco já contém o DDL aplicado acima; validar sem re-executar (evita
+        // "table X already exists" em execuções repetidas).
+        const feedback = validateSchemaChallenge(updatedDdl, challenge, db, { applyDdl: false });
+        renderSchemaFeedback(feedback);
+        state.lastValidationFeedback = {
+          type: feedback.type,
+          message: feedback.message,
+        };
+
+        if (feedback.type === SB_FEEDBACK_CORRECT) {
+          // Persiste o DDL final do desafio concluído.
+          if (fullDdl) {
+            state.schemaBuilderDdl[challenge.id] = fullDdl.split('\n').filter(s => s.trim());
+          }
+
+          const hintsUsed = state.hintsRevealed.length;
+          const stars = calculateStars(hintsUsed);
+
+          const result = updateLevelProgress(state.levelProgress, challenge.id, stars, hintsUsed);
+          state.levelProgress = result.levelProgress;
+          if (result.updated) recalculateScore();
+
+          if (!state.completedLevels.includes(challenge.id)) {
+            state.completedLevels.push(challenge.id);
+          }
+
+          if (!state.evidence.includes(challenge.evidence)) {
+            state.evidence.push(challenge.evidence);
+            playAlertSound();
+          } else {
+            playSuccessSound();
+          }
+
+          setSchema(getSchemaText());
+          enableEditorButtons(false);
+          const currentEditorHelp = document.getElementById('editor-help');
+          if (currentEditorHelp) currentEditorHelp.textContent = 'Modelo validado pela IA arquiteta local. Avance para o próximo desafio.';
+
+          renderSchemaEvidence(activeCase.SCHEMA_CHALLENGES, state.completedLevels);
+          renderSchemaProgress(activeCase.SCHEMA_CHALLENGES, challenge.id, state.completedLevels, state.levelProgress);
+          renderScore(state.score, calculateTotalStars(state.levelProgress), calculateMaxStars(activeCase.SCHEMA_CHALLENGES.length));
+          renderHeaderProgress(state.completedLevels.length, activeCase.SCHEMA_CHALLENGES.length);
+          renderSchemaRail(activeCase.SCHEMA_CHALLENGES, state.currentLevel, state.completedLevels, (id) => loadMission(id));
+
+          const nextChallenge = (activeCase.SCHEMA_CHALLENGES || [])
+            .find(ch => Number(ch.number) === Number(challenge.number) + 1);
+          if (nextChallenge && !state.completedLevels.includes(nextChallenge.id)) {
+            const btnNextEl = document.getElementById('btn-next');
+            if (btnNextEl) btnNextEl.hidden = false;
+          }
+
+          persistState();
+
+          if (state.completedLevels.length >= (activeCase.SCHEMA_CHALLENGES || []).length) {
+            state.completedAt = state.completedAt || new Date().toISOString();
+            persistState();
+            setTimeout(() => showActiveCaseConclusion(activeCase), 500);
+          }
+        } else {
+          // Mesmo em feedback negativo, o banco continua com o DDL aplicado para o jogador continuar.
+          try { renderSchemaDetailed(db); } catch { /* banco pode estar vazio */ }
+          persistState();
         }
         return;
       }
@@ -1191,6 +1431,21 @@ function initBasicEvents() {
         return;
       }
 
+      // --- Modo Construtor de Schema: revelação progressiva das dicas de modelagem ---
+      if (isSchemaBuilderMode()) {
+        const challenge = getActiveSchemaChallenge();
+        if (!challenge) return;
+        const availableHints = challenge.hints || [];
+        if (state.hintsRevealed.length >= availableHints.length) return;
+        state.hintsRevealed.push({ source: 'local', text: availableHints[state.hintsRevealed.length] });
+        renderSchemaHints(challenge, state.hintsRevealed);
+        if (state.hintsRevealed.length >= availableHints.length) {
+          enableHintButton(false);
+        }
+        persistState();
+        return;
+      }
+
       const level = activeCase.getLevel(state.currentLevel);
       if (!level) return;
       if (state.hintsRevealed.length >= 3) return;
@@ -1259,13 +1514,84 @@ function initBasicEvents() {
     });
   }
 
+  if (btnAiReview) {
+    btnAiReview.addEventListener('click', async () => {
+      const challenge = getActiveSchemaChallenge();
+      if (!challenge) return;
+      if (!isSchemaBuilderMode()) return;
+      if (state.hintRequestInFlight) return;
+
+      const requestToken = `schema:${challenge.id}:${Date.now()}`;
+      state.activeHintRequestToken = requestToken;
+      state.hintRequestInFlight = true;
+      setAiReviewButtonLoading(true);
+
+      const abortController = new AbortController();
+      const onMissionChange = () => abortController.abort();
+      document.addEventListener('mission-changed', onMissionChange, { once: true });
+
+      try {
+        const ddl = getActiveSchemaDdl();
+        const currentSql = getEditorValue().trim();
+        const ctx = buildReviewContext({
+          challenge,
+          playerDdl: currentSql ? (ddl ? `${ddl}\n${currentSql}` : currentSql) : ddl,
+          validationFeedback: state.lastValidationFeedback,
+        });
+
+        const result = await requestAiSchemaReview(ctx, { signal: abortController.signal });
+
+        if (state.activeHintRequestToken !== requestToken) return;
+
+        if (result.ok && result.review) {
+          state.hintsRevealed.push({ source: 'ai-architect', text: result.review });
+          renderSchemaHints(challenge, state.hintsRevealed);
+          showHintFallbackNotice('Revisão da IA arquiteta registrada na aba de dicas.');
+          persistState();
+        } else {
+          const code = result.error?.code || 'UNKNOWN';
+          if (code === 'TIMEOUT') {
+            showHintFallbackNotice('Tempo esgotado ao contatar a IA arquiteta. Tente novamente.');
+          } else if (code === 'RATE_LIMITED') {
+            showHintFallbackNotice('Muitas consultas à IA em pouco tempo. Aguarde um minuto e tente novamente.');
+          } else if (code === 'NETWORK_ERROR' || code === 'NO_FETCH') {
+            showHintFallbackNotice('IA arquiteta indisponível. Use as dicas locais de modelagem.');
+          } else {
+            showHintFallbackNotice('A IA arquiteta não pôde revisar agora. Use as dicas locais de modelagem.');
+          }
+        }
+      } catch {
+        if (state.activeHintRequestToken !== requestToken) return;
+        showHintFallbackNotice('IA arquiteta indisponível. Use as dicas locais de modelagem.');
+      } finally {
+        document.removeEventListener('mission-changed', onMissionChange);
+        if (state.activeHintRequestToken === requestToken) {
+          state.hintRequestInFlight = false;
+          state.activeHintRequestToken = null;
+          setAiReviewButtonLoading(false);
+        }
+      }
+    });
+  }
+
   if (btnNext) {
     btnNext.addEventListener('click', () => {
       const activeCase = getActiveCase();
       if (isBugHunterMode()) {
         const challenge = getActiveBugChallenge();
         if (!challenge) return;
-        const nextChallenge = (activeCase.BUG_CHALLENGES || []).find(ch => ch.number === challenge.number + 1);
+        const nextChallenge = (activeCase.BUG_CHALLENGES || []).find(ch => Number(ch.number) === Number(challenge.number) + 1);
+        if (nextChallenge && !state.completedLevels.includes(nextChallenge.id)) {
+          loadMission(nextChallenge.id);
+          const btnNextEl = document.getElementById('btn-next');
+          if (btnNextEl) btnNextEl.hidden = true;
+        }
+        return;
+      }
+      if (isSchemaBuilderMode()) {
+        const challenge = getActiveSchemaChallenge();
+        if (!challenge) return;
+        const nextChallenge = (activeCase.SCHEMA_CHALLENGES || []).find(ch => Number(ch.number) === Number(challenge.number) + 1);
         if (nextChallenge && !state.completedLevels.includes(nextChallenge.id)) {
           loadMission(nextChallenge.id);
           const btnNextEl = document.getElementById('btn-next');

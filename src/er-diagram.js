@@ -297,7 +297,13 @@ export function generateERDiagramSVG() {
 /** Gera um diagrama a partir do schema carregado do caso ativo. */
 function generateActiveCaseERDiagramSVG() {
   const tables = getSchemaDetailed();
-  if (tables.length === 0) return generateERDiagramSVG();
+  if (tables.length === 0) {
+    return `<svg xmlns="http://www.w3.org/2000/svg" width="420" height="140" viewBox="0 0 420 140" role="img" aria-label="Nenhuma tabela criada ainda" style="max-width: none; height: auto;">
+      <rect x="0" y="0" width="420" height="140" rx="8" fill="rgba(17,24,39,0.9)" stroke="#2a3a5c" />
+      <text x="210" y="60" class="er-table-title" text-anchor="middle">O desenho começa vazio.</text>
+      <text x="210" y="90" font-family="Inter, sans-serif" font-size="12" fill="#8b99b8" text-anchor="middle">Escreva seu primeiro CREATE TABLE e o diagrama surge aqui.</text>
+    </svg>`;
+  }
   const columns = 3;
   const positions = {};
   const rowHeights = [];

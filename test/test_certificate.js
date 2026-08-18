@@ -40,22 +40,14 @@ const printWindow = { document: printDocument, printCalled: false, print() { thi
 let popupAllowed = true;
 const windowMock = { open: () => (popupAllowed ? printWindow : null) };
 
-let code = transformESM(readSource('certificate.js'));
-code = `
-const loadState = __loadState;
-const getAllCases = __getAllCases;
-const getCaseById = __getCaseById;
-const isCaseComplete = __isCaseComplete;
-const window = __window;
-const document = __document;
-${code}`;
+const code = transformESM(readSource('certificate.js'));
 const certificate = evalModule(code, {
-  __loadState: () => savedState,
-  __getAllCases: () => [caseDefinition],
-  __getCaseById: id => (id === caseDefinition.id ? caseDefinition : null),
-  __isCaseComplete: isCaseComplete,
-  __window: windowMock,
-  __document: { getElementById: () => null },
+  loadState: () => savedState,
+  getAllCases: () => [caseDefinition],
+  getCaseById: id => (id === caseDefinition.id ? caseDefinition : null),
+  isCaseComplete: isCaseComplete,
+  window: windowMock,
+  document: { getElementById: () => null },
 }, 'certificate.js');
 
 console.log('\n=== Certificado ===');

@@ -31,7 +31,29 @@ function readSource(filename) {
 function transformESM(code) {
   let transformed = code;
 
-  // Remove linhas de import (não precisamos delas — as dependências serão injetadas)
+  // Captura os nomes importados de módulos-fonte (para stubs automáticos) antes de remover as linhas.
+  const importedNames = new Set();
+  const namespaceNames = new Set();
+
+  // import { a, b } from '...' (também multilinha)
+  transformed = transformed.replace(
+    /^\s*import\s*\{([^}]+)\}\s*from\s+['"].*?['"];?\s*$/gm,
+    (match, names) => {
+      names.split(',').forEach(part => {
+        const pieces = part.trim().split(/\s+as\s+/);
+        if (pieces[0]) importedNames.add(pieces[0]);
+      });
+      return '';
+    }
+  );
+  // import * as ns from '...'
+  transformed = transformed.replace(
+    /^\s*import\s*\*\s+as\s+(\w+)\s+from\s+['"].*?['"];?\s*$/gm,
+    (match, ns) => {
+      namespaceNames.add(ns);
+      return '';
+    }
+  );
   transformed = transformed.replace(/^\s*import\s+.*?from\s+['"].*?['"];?\s*$/gm, '');
   transformed = transformed.replace(/^\s*import\s+['"].*?['"];?\s*$/gm, '');
 
@@ -89,7 +111,18 @@ function transformESM(code) {
     }
   );
 
-  // Adiciona as atribuições de export no final
+  // Adiciona as atribuições de export no final e injeta stubs dos nomes importados
+  // (constantes de módulos-fonte, ex.: RESULT_ERROR/'error', RESULT_BLOCKED/'blocked').
+  let stubLines = '\n// === Auto-imported stubs ===\n';
+  for (const name of importedNames) {
+    stubLines += `const ${name} = '${name.toLowerCase()}';\n`;
+  }
+  // Namespaces de import * as ns: objeto proxy que aceita qualquer acesso.
+  for (const ns of namespaceNames) {
+    stubLines += `const ${ns} = new Proxy({}, { get: () => undefined });\n`;
+  }
+  transformed = stubLines + transformed;
+
   let exportLines = '\n// === Auto-generated exports ===\n';
   for (const name of exportedNames) {
     if (typeof name === 'string') {
@@ -113,6 +146,14 @@ function transformESM(code) {
 function evalModule(code, sandbox = {}, filename = '<module>') {
   const exports = {};
   const module = { exports };
+
+  // Remove apenas os stubs automáticos (string literal ou namespace Proxy) que
+  // serão sombreados pela injeção do sandbox; preserva declarações legítimas do teste.
+  const injectedNames = Object.keys(sandbox).map(k => k.replace(/^__injected_/, ''));
+  const stubPattern = `(?:'[^']*'|new Proxy\\(\\{\\}, \\{ get: \\(\\) => undefined \\}\\))`;
+  for (const injected of injectedNames) {
+    code = code.replace(new RegExp(`^const\\s+${injected}\\s*=\\s*${stubPattern};\\s*$`, 'm'), '');
+  }
 
   const context = {
     exports,
@@ -274,6 +315,29 @@ function loadBugHunterValidator(executeQuery) {
   return evalModule(transformed, { __injected_executeQuery: executeQuery }, 'bug-hunter-validator.js');
 }
 
+/**
+ * Carrega o schema-challenges.js real (dados dos desafios) do src/cases/.
+ * @returns {object}
+ */
+function loadSchemaBuilderChallenges() {
+  const code = readSource(path.join('cases', 'schema-challenges.js'));
+  const transformed = transformESM(code);
+  return evalModule(transformed, {}, 'cases/schema-challenges.js');
+}
+
+/**
+ * Carrega o schema-builder-validator.js real.
+ * Precisa de executeQuery injetado (do executor).
+ * @param {Function} executeQuery
+ * @returns {object}
+ */
+function loadSchemaBuilderValidator(executeQuery) {
+  const code = readSource('schema-builder-validator.js');
+  let transformed = transformESM(code);
+  transformed = `const executeQuery = __injected_executeQuery;\n` + transformed;
+  return evalModule(transformed, { __injected_executeQuery: executeQuery }, 'schema-builder-validator.js');
+}
+
 module.exports = {
   readSource,
   transformESM,
@@ -288,4 +352,6 @@ module.exports = {
   loadBugHunterChallenges,
   loadBugHunterValidator,
   loadSeedData,
+  loadSchemaBuilderChallenges,
+  loadSchemaBuilderValidator,
 };

@@ -276,6 +276,7 @@ function loadAppWithMocks() {
       BUG_HUNTER_CONCLUSION: { title: 'Modo concluído' },
       BUG_CHALLENGES: [],
     },
+    schemaBuilderLevels: loadLevelsFrom('cases/schema-challenges.js'),
   });
 
   // er-diagram e ai-hints puros
@@ -288,7 +289,7 @@ function loadAppWithMocks() {
   const stateModule = evalModule(transformESM(readSource('state.js')), {}, 'state.js');
 
   const appRaw = readSource('app.js');
-  const appCode = removeImportStatements(transformESM(appRaw));
+  let appCode = removeImportStatements(transformESM(appRaw));
 
   const context = {
     // runtime
@@ -392,6 +393,14 @@ function loadAppWithMocks() {
     renderGraphSVG: suspectGraph.renderGraphSVG,
     buildGraphState: suspectGraph.buildGraphState,
   };
+
+  // Remove os stubs automáticos do novo transformESM (const name = 'name'; e
+  // namespaces Proxy) que seriam sombreados pelas dependências injetadas acima.
+  const injectedAppNames = new Set(Object.keys(context));
+  const appStubPattern = `(?:'[^']*'|new Proxy\\(\\{\\}, \\{ get: \\(\\) => undefined \\}\\))`;
+  for (const name of injectedAppNames) {
+    appCode = appCode.replace(new RegExp(`^const\\s+${name}\\s*=\\s*${appStubPattern};\\s*$`, 'm'), '');
+  }
 
   context.globalThis = context;
 

@@ -381,7 +381,65 @@ assert(res26.status === 405, `status 405 (got ${res26.status})`);
 server26.close();
 delete require.cache[require.resolve('../server.js')];
 
-console.log('\n[27] safeResolvePath — rejeita traversal');
+console.log('\n[27] ai-schema-review — sem chave API retorna 503');
+process.env.OLLAMA_API_KEY = '';
+delete require.cache[require.resolve('../server.js')];
+const server27 = require('../server.js').createServer();
+server27.listen(0);
+const schemaBody = { challenge: { title: 'A Empresa', concept: 'Modelagem relacional', requirements: 'Funcionários pertencem a departamentos.' }, playerDdl: 'CREATE TABLE funcionarios (id INTEGER PRIMARY KEY);' };
+const res27 = await makeRequest(server27, 'POST', '/api/ai-schema-review', schemaBody);
+assert(res27.status === 503, `status 503 (got ${res27.status})`);
+assert(res27.body.error && res27.body.error.code === 'AI_HINTS_DISABLED', 'code=AI_HINTS_DISABLED');
+assert(res27.body && res27.body.error, 'responde com estrutura de erro');
+server27.close();
+delete require.cache[require.resolve('../server.js')];
+
+console.log('\n[28] ai-schema-review — corpo inválido retorna 400');
+process.env.OLLAMA_API_KEY = 'test-key';
+delete require.cache[require.resolve('../server.js')];
+const server28 = require('../server.js').createServer();
+server28.listen(0);
+const res28 = await makeRequest(server28, 'POST', '/api/ai-schema-review', { ddl: 'CREATE TABLE t (id INT);' });
+assert(res28.status === 400, `status 400 (got ${res28.status})`);
+assert(res28.body.error && res28.body.error.code === 'INVALID_INPUT', 'code=INVALID_INPUT');
+server28.close();
+delete require.cache[require.resolve('../server.js')];
+
+console.log('\n[29] ai-schema-review — método GET retorna 405');
+process.env.OLLAMA_API_KEY = 'test-key';
+delete require.cache[require.resolve('../server.js')];
+const server29b = require('../server.js').createServer();
+server29b.listen(0);
+const res29b = await makeRequest(server29b, 'GET', '/api/ai-schema-review', null);
+assert(res29b.status === 405, `status 405 (got ${res29b.status})`);
+server29b.close();
+delete require.cache[require.resolve('../server.js')];
+
+console.log('\n[30] ai-schema-review — payload gigante retorna 400');
+process.env.OLLAMA_API_KEY = 'test-key';
+delete require.cache[require.resolve('../server.js')];
+const server29 = require('../server.js').createServer();
+server29.listen(0);
+const hugeSchema = { challenge: { title: 'A Empresa', concept: 'Modelagem', requirements: 'x'.repeat(20 * 1024) } };
+const res29 = await makeRequest(server29, 'POST', '/api/ai-schema-review', hugeSchema);
+assert(res29.status === 400, `status 400 (got ${res29.status})`);
+assert(res29.body.error.code === 'PAYLOAD_TOO_LARGE', 'code=PAYLOAD_TOO_LARGE');
+server29.close();
+delete require.cache[require.resolve('../server.js')];
+
+console.log('\n[31] ai-schema-review — sucesso com chave e fetch mockado');
+process.env.OLLAMA_API_KEY = 'test-key';
+delete require.cache[require.resolve('../server.js')];
+const server30 = require('../server.js').createServer(mockFetchOk('O schema está coerente. Considere adicionar índices nas FKs.'));
+server30.listen(0);
+const res30 = await makeRequest(server30, 'POST', '/api/ai-schema-review', schemaBody);
+assert(res30.status === 200, `status 200 (got ${res30.status})`);
+assert(res30.body && res30.body.review !== undefined, 'resposta contém o campo review');
+assert(res30.body.source === 'ollama', 'source=ollama');
+server30.close();
+delete require.cache[require.resolve('../server.js')];
+
+console.log('\n[32] safeResolvePath — rejeita traversal');
 assert(safeResolvePath('/../../../etc/passwd') === null, 'traversal rejeitado');
 assert(safeResolvePath('/.env') === null, '.env rejeitado');
 assert(safeResolvePath('/.git/config') === null, '.git rejeitado');
@@ -394,32 +452,31 @@ assert(safe && safe.endsWith('index.html'), 'caminho termina em index.html');
 // ====================================================================
 // Testes: Arquivos estáticos
 // ====================================================================
-console.log('\n[29] Servidor estático — serve index.html');
+console.log('\n[32] Servidor estático — serve index.html');
 process.env.OLLAMA_API_KEY = '';
 delete require.cache[require.resolve('../server.js')];
-const server29 = require('../server.js').createServer();
-server29.listen(0);
-const res29 = await makeRequest(server29, 'GET', '/', null);
-assert(res29.status === 200, `GET / -> 200 (got ${res29.status})`);
-assert(res29.raw.includes('<!DOCTYPE html>'), 'serve HTML');
-server29.close();
+const server32 = require('../server.js').createServer();
+server32.listen(0);
+const res32 = await makeRequest(server32, 'GET', '/', null);
+assert(res32.status === 200, `GET / -> 200 (got ${res32.status})`);
+assert(res32.raw.includes('<!DOCTYPE html>'), 'serve HTML');
+server32.close();
 delete require.cache[require.resolve('../server.js')];
-
-console.log('\n[30] Servidor estático — serve .js com MIME correto');
+console.log('\n[33] Servidor estático — serve .js com MIME correto');
 process.env.OLLAMA_API_KEY = '';
 delete require.cache[require.resolve('../server.js')];
-const server30 = require('../server.js').createServer();
-server30.listen(0);
-const res30 = await new Promise((resolve, reject) => {
-  http.get(`http://localhost:${server30.address().port}/src/app.js`, (res) => {
+const server33 = require('../server.js').createServer();
+server33.listen(0);
+const res33 = await new Promise((resolve, reject) => {
+  http.get(`http://localhost:${server33.address().port}/src/app.js`, (res) => {
     let data = '';
     res.on('data', (c) => data += c);
     res.on('end', () => resolve({ status: res.statusCode, headers: res.headers, raw: data }));
   }).on('error', reject);
 });
-assert(res30.status === 200, 'GET /src/app.js -> 200');
-assert(res30.headers['content-type'].includes('javascript'), 'MIME javascript');
-server30.close();
+assert(res33.status === 200, 'GET /src/app.js -> 200');
+assert(res33.headers['content-type'].includes('javascript'), 'MIME javascript');
+server33.close();
 delete require.cache[require.resolve('../server.js')];
 
 console.log('\n[31] Servidor estático — serve .wasm com MIME correto');

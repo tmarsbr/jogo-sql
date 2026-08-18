@@ -2736,6 +2736,52 @@ button {
   background: rgba(34, 197, 94, 0.06);
 }
 
+/* --- Construtor de Schema --- */
+.schema-checklist {
+  margin: 10px 0;
+  padding: 10px 14px;
+  border: 1px solid rgba(0, 240, 255, 0.25);
+  background: rgba(0, 240, 255, 0.05);
+  border-radius: 8px;
+  font-size: 0.8125rem;
+}
+.schema-checklist ul {
+  list-style: none;
+  margin: 8px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+.schema-check-item {
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+}
+.schema-check-status {
+  font-family: var(--font-mono);
+  font-size: 0.6875rem;
+  letter-spacing: 0.05em;
+  opacity: 0.8;
+}
+.schema-check-item.missing .schema-check-status { color: #FF6B7F; }
+.schema-check-item.found .schema-check-status { color: #4ADE80; }
+.schema-builder-tip {
+  margin-top: 12px;
+  font-size: 0.8125rem;
+  color: #8b99b8;
+}
+.schema-builder-tip code {
+  font-family: var(--font-mono);
+  color: var(--accent-cyan);
+  background: rgba(0, 240, 255, 0.08);
+  padding: 1px 5px;
+  border-radius: 4px;
+}
+.feedback-info {
+  border-color: rgba(0, 240, 255, 0.35);
+  background: rgba(0, 240, 255, 0.07);
+  color: var(--accent-cyan);
+}
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {
     scroll-behavior: auto !important;

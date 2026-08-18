@@ -229,10 +229,12 @@
         <p id="editor-help" class="sr-only">Use SELECT ou WITH para consultar o banco.</p>
 
         <div class="editor-actions">
-          <button id="btn-run" type="button" class="btn btn-primary" disabled>EXECUTAR</button>
+          <button id="btn-run" type="button" class="btn btn-primary" disabled>VALIDAR MODELO</button>
           <button id="btn-clear" type="button" class="btn btn-secondary" disabled>LIMPAR</button>
-          <button id="btn-next" type="button" class="btn btn-success" hidden>PRÓXIMA MISSÃO →</button>
+          <button id="btn-next" type="button" class="btn btn-success" hidden>PRÓXIMO MODELO →</button>
           <span style="flex: 1;"></span>
+          <button id="btn-ai-review" type="button" class="btn btn-secondary" style="font-size: 9.5px; padding: 7px 11px;" hidden title="Envia o modelo completo para revisão de coerência pela IA arquiteta.">REVISAR COM IA</button>
+          <button id="btn-hint" type="button" class="btn btn-secondary" style="font-size: 9.5px; padding: 7px 11px;" hidden title="Revela uma dica progressiva de modelagem — cada revelação reduz a pontuação.">REVELAR DICA</button>
           <button id="btn-reset" type="button" class="btn btn-danger-outline">REINICIAR PROGRESSO</button>
         </div>
 
@@ -251,7 +253,7 @@
     <!-- COLUNA 3: Painel Investigativo (Abas) -->
     <aside id="panel-sidebar" class="panel panel-sidebar" aria-label="Painel Investigativo">
       <nav id="sidebar-tabs-nav" class="sidebar-tabs-nav" aria-label="Abas do Painel Investigativo" role="tablist">
-        <button id="sidebar-tab-lesson" type="button" class="sidebar-tab-btn active" data-sidebar-tab="lesson" role="tab" aria-selected="true" aria-controls="sidebar-pane-lesson">AULA</button>
+        <button id="sidebar-tab-lesson" type="button" class="sidebar-tab-btn active" data-sidebar-tab="lesson" role="tab" aria-selected="true" aria-controls="sidebar-pane-lesson">CURSO</button>
         <button id="sidebar-tab-evidence" type="button" class="sidebar-tab-btn" data-sidebar-tab="evidence" role="tab" aria-selected="false" aria-controls="sidebar-pane-evidence" tabindex="-1">EVIDÊNCIAS</button>
         <button id="sidebar-tab-graph" type="button" class="sidebar-tab-btn" data-sidebar-tab="graph" role="tab" aria-selected="false" aria-controls="sidebar-pane-graph" tabindex="-1">REDE</button>
         <button id="sidebar-tab-timeline" type="button" class="sidebar-tab-btn" data-sidebar-tab="timeline" role="tab" aria-selected="false" aria-controls="sidebar-pane-timeline" tabindex="-1">TEMPO</button>

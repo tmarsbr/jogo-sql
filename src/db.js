@@ -250,6 +250,8 @@ function getCaseDatabaseDefinition(caseId) {
     case006: { schema: CASE006_SCHEMA_SQL, seed: CASE006_SEED_SQL },
     // O modo Bug Hunter reutiliza o banco do Caso #001 (TechFin) para os desafios de debug.
     'bug-hunter': { schema: SCHEMA_SQL, seed: SEED_SQL },
+    // O modo Construtor de Schema começa com o banco vazio — o jogador constrói tudo.
+    'schema-builder': { schema: '', seed: '' },
   };
   return definitions[caseId] || definitions.case001;
 }
@@ -289,11 +291,15 @@ export async function initDB(caseId = state.currentCase || 'case001', { force = 
 
     const definition = getCaseDatabaseDefinition(caseId);
 
-    // Executa schema do caso ativo
-    db.run(definition.schema);
+    // Executa schema do caso ativo (casos como o Construtor de Schema começam vazios)
+    if (definition.schema && String(definition.schema).trim().length > 0) {
+      db.run(definition.schema);
+    }
 
     // Executa dados determinísticos do caso ativo
-    db.run(definition.seed);
+    if (definition.seed && String(definition.seed).trim().length > 0) {
+      db.run(definition.seed);
+    }
 
     state.dbReady = true;
     dbCaseId = caseId;

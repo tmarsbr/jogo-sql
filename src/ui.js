@@ -31,6 +31,7 @@ const dom = {
   btnRun: null,
   btnClear: null,
   btnHint: null,
+  btnAiReview: null,
   btnNext: null,
   resultsContainer: null,
   progressDisplay: null,
@@ -78,6 +79,7 @@ export function initDOM() {
   dom.btnRun = $('#btn-run');
   dom.btnClear = $('#btn-clear');
   dom.btnHint = $('#btn-hint');
+  dom.btnAiReview = $('#btn-ai-review');
   dom.btnNext = $('#btn-next');
   dom.resultsContainer = $('#results-container');
   dom.progressDisplay = $('#progress-display');
@@ -1133,6 +1135,279 @@ export function renderTimeline(timelineConfig, completedLevels, order) {
   if (dom.btnTimelineCheck) {
     dom.btnTimelineCheck.disabled = unlockedEvents.length < timelineConfig.events.length
       || order.length < unlockedEvents.length;
+  }
+}
+
+/* --- UI do Modo Construtor de Schema --- */
+
+/**
+ * Renderiza o briefing do desafio Construtor de Schema (exibido na aba CENÁRIO).
+ * Os requisitos, a história e a checklist de tabelas esperadas são montados aqui.
+ * @param {object} challenge dados do desafio
+ * @param {string} currentDdl DDL atual do jogador (para a checklist)
+ * @param {number[]} completedLevels ids concluídos
+ */
+export function renderSchemaChallenge(challenge, currentDdl = '', completedLevels = []) {
+  if (!dom.briefingContent) return;
+  const done = completedLevels.includes(challenge.id);
+  const expected = (challenge.expectedTables || []).map(table => {
+    const found = new RegExp(`\\b${escapeHtml(table)}\\b`, 'i').test(currentDdl);
+    return `  <li class="schema-check-item ${found ? 'found' : 'missing'}">${found ? '🟢' : '⚪'} ${escapeHtml(table)}${found ? ' <span class="schema-check-status">criada</span>' : ' <span class="schema-check-status">pendente</span>'}</li>`;
+  }).join('');
+
+  dom.briefingContent.innerHTML = `
+    <div class="feedback feedback-info">
+      <strong>Desafio ${challenge.number} · ${escapeHtml(challenge.title)}</strong><br>
+      <em>Conceito: ${escapeHtml(challenge.concept)}</em>
+    </div>
+    <p>${escapeHtml(challenge.story)}</p>
+    <div class="feedback feedback-warn"><strong>Requisitos do cliente:</strong><br>${escapeHtml(challenge.requirements)}</div>
+    <p><strong>Cardinalidades esperadas:</strong> ${escapeHtml(challenge.summary)}</p>
+    ${expected ? `<div class="schema-checklist"><strong>Checklist de tabelas:</strong><ul>${expected}</ul></div>` : ''}
+    <p class="schema-builder-tip">Escreva um <code>CREATE TABLE</code> por execução e clique em <strong>VALIDAR MODELO</strong> — o banco acumula suas criações. Ao concluir, use <strong>REVISAR COM IA</strong> para checar a coerência do modelo.</p>
+    ${done ? `<p class="feedback feedback-success">✓ Modelo validado e arquivado.</p>` : ''}
+  `;
+}
+
+/**
+ * Renderiza as dicas de modelagem reveladas (locais e da IA arquiteta).
+ * @param {object} challenge dados do desafio
+ * @param {object[]} revealed dicas já reveladas
+ */
+export function renderSchemaHints(challenge, revealed) {
+  if (!dom.hintsDisplay) return;
+  const hints = challenge.hints || [];
+  if (revealed.length === 0) {
+    dom.hintsDisplay.innerHTML = '<p class="placeholder-text">Use "Revelar dica" para receber orientações progressivas de modelagem — cada revelação reduz a pontuação do desafio. A IA arquiteta pode revisar seu modelo completo de uma vez.</p>';
+    setHintButtonSchemaMode(0, hints.length);
+    return;
+  }
+  let html = '';
+  for (let i = 0; i < revealed.length; i++) {
+    const item = revealed[i];
+    const isObj = typeof item === 'object' && item !== null;
+    const text = isObj ? item.text : item;
+    const source = isObj ? item.source : 'local';
+    const label = source === 'ai-architect' ? 'IA ARQUITETA' : source === 'ollama' ? 'IA ARQUITETA' : 'BASE LOCAL';
+    html += `
+      <div class="hint-item">
+        <strong>DICA ${i + 1} · ${escapeHtml(label)}</strong>
+        <span>${escapeHtml(text)}</span>
+      </div>
+    `;
+  }
+  dom.hintsDisplay.innerHTML = html;
+  setHintButtonSchemaMode(revealed.length, hints.length);
+}
+
+/** Atualiza o rótulo do botão de dica para o fluxo do Construtor de Schema. */
+export function setHintButtonSchemaMode(revealedCount, maxHints) {
+  if (!dom.btnHint) return;
+  const remaining = Math.max(0, maxHints - revealedCount);
+  dom.btnHint.textContent = remaining > 0
+    ? `REVELAR DICA (${remaining} RESTANTES)`
+    : 'TODAS AS DICAS REVELADAS';
+}
+
+/** Atualiza o rótulo e estado do botão de revisão com IA. */
+export function setAiReviewButtonLoading(loading) {
+  if (!dom.btnAiReview) return;
+  if (loading) {
+    dom.btnAiReview.textContent = 'REVISANDO…';
+    dom.btnAiReview.disabled = true;
+  } else {
+    dom.btnAiReview.textContent = 'REVISAR COM IA';
+    dom.btnAiReview.disabled = false;
+  }
+}
+
+/**
+ * Renderiza o feedback da validação de um desafio Construtor de Schema.
+ * @param {object} feedback resultado do validateSchemaChallenge
+ */
+export function renderSchemaFeedback(feedback) {
+  let cls = 'feedback';
+  let label = '';
+
+  switch (feedback?.type) {
+    case 'correct':
+      cls = 'feedback feedback-success';
+      label = '✓ MODELO VALIDADO.';
+      break;
+    case 'incomplete':
+      cls = 'feedback feedback-warn';
+      label = '🏗️ MODELO INCOMPLETO.';
+      break;
+    case 'sql_error':
+      cls = 'feedback feedback-error';
+      label = '⚠ ERRO DE SQL.';
+      break;
+    case 'blocked':
+      cls = 'feedback feedback-error';
+      label = '⛔ COMANDO BLOQUEADO.';
+      break;
+    case 'missing_table':
+      cls = 'feedback feedback-warn';
+      label = '🏗️ TABELA AUSENTE.';
+      break;
+    case 'unexpected_table':
+      cls = 'feedback feedback-warn';
+      label = '⚠ TABELA NÃO ESPERADA.';
+      break;
+    case 'missing_pk':
+      cls = 'feedback feedback-warn';
+      label = '🔑 CHAVE PRIMÁRIA AUSENTE.';
+      break;
+    case 'missing_column':
+      cls = 'feedback feedback-warn';
+      label = '⚠ COLUNA AUSENTE.';
+      break;
+    case 'missing_fk':
+      cls = 'feedback feedback-warn';
+      label = '🔗 CHAVE ESTRANGEIRA AUSENTE.';
+      break;
+    case 'missing_junction':
+      cls = 'feedback feedback-warn';
+      label = '🔗 RELAÇÃO N:N SEM TABELA DE JUNÇÃO.';
+      break;
+    case 'cardinality_wrong':
+      cls = 'feedback feedback-warn';
+      label = '⚠ CARDINALIDADE INCORRETA.';
+      break;
+    case 'constraint_missing':
+      cls = 'feedback feedback-warn';
+      label = '⚠ RESTRIÇÃO AUSENTE.';
+      break;
+    default:
+      cls = 'feedback feedback-warn';
+      label = '⚠ REVISANDO MODELO.';
+  }
+
+  const container = dom.resultsContainer;
+  if (!container || !feedback) return;
+  const existing = container.querySelector('.feedback');
+  if (existing) existing.remove();
+
+  const div = document.createElement('div');
+  div.className = cls;
+  div.innerHTML = `<strong style="font-family: var(--font-mono); letter-spacing: .06em;">${label}</strong> ${escapeHtml(feedback.message)}`;
+  container.appendChild(div);
+}
+
+/**
+ * Renderiza as evidências do modo Construtor de Schema.
+ * @param {object[]} challenges todos os desafios
+ * @param {number[]} completedLevelIds ids concluídos
+ */
+export function renderSchemaEvidence(challenges, completedLevelIds) {
+  if (!dom.evidenceDisplay) return;
+  if (!challenges || challenges.length === 0) {
+    dom.evidenceDisplay.innerHTML = '<p class="placeholder-text">Nenhuma evidência coletada ainda.</p>';
+    return;
+  }
+
+  const completedSet = new Set(completedLevelIds);
+  const previewCount = Math.max(
+    completedLevelIds.length + 1,
+    Math.min(3, challenges.length)
+  );
+  const visibleSet = new Set();
+  challenges.forEach((ch, idx) => {
+    if (completedSet.has(ch.id) || idx < previewCount) visibleSet.add(ch.id);
+  });
+
+  let html = '';
+  for (const ch of challenges.filter(item => visibleSet.has(item.id))) {
+    const isUnlocked = completedSet.has(ch.id);
+    const numStr = String(ch.number).padStart(2, '0');
+    if (isUnlocked) {
+      html += `
+        <div class="evidence-card unlocked">
+          <div class="evidence-card-header">
+            <span class="evidence-num">MODELO SB-${numStr}</span>
+            <span class="pill-badge" style="border-color: rgba(34,197,94,.4); color: #4ADE80; background: rgba(34,197,94,.08);">✓ ARQUIVADO</span>
+          </div>
+          <p class="evidence-text">${escapeHtml(ch.evidence)}</p>
+        </div>
+      `;
+    } else {
+      html += `
+        <div class="evidence-card locked">
+          <div class="evidence-card-header">
+            <span class="evidence-num">MODELO SB-${numStr}</span>
+            <span class="pill-badge" style="border-color: rgba(239,68,68,.35); color: #FF6B7F; background: rgba(239,68,68,.07);">CLASSIFICADO</span>
+          </div>
+          <p class="evidence-text" style="filter: blur(4px); user-select: none;">${escapeHtml(ch.evidence)}</p>
+        </div>
+      `;
+    }
+  }
+  dom.evidenceDisplay.innerHTML = html;
+}
+
+/**
+ * Renderiza o progresso por desafio (estrelas e status).
+ * @param {object[]} challenges todos os desafios
+ * @param {number} currentId id do desafio ativo
+ * @param {number[]} completedLevels ids concluídos
+ * @param {object} [levelProgress] progresso com estrelas por desafio
+ */
+export function renderSchemaProgress(challenges, currentId, completedLevels, levelProgress = {}) {
+  if (!dom.progressDisplay) return;
+  let html = '<div class="progress-list">';
+  for (const challenge of challenges) {
+    const done = completedLevels.includes(challenge.id);
+    const active = challenge.id === currentId;
+    const cls = done ? 'progress-item completed' : active ? 'progress-item active' : 'progress-item';
+    const icon = done ? '✅' : active ? '🏗️' : '⬛';
+
+    let starsHtml = '';
+    if (done && levelProgress[challenge.id]) {
+      const stars = levelProgress[challenge.id].stars;
+      for (let i = 0; i < 3; i++) {
+        starsHtml += i < stars ? '★' : '☆';
+      }
+      starsHtml = `<span class="progress-stars">${starsHtml}</span>`;
+    }
+
+    html += `<div class="${cls}">${icon} <span class="progress-label">Modelo ${challenge.number}: ${escapeHtml(challenge.title)}</span>${starsHtml} <span class="progress-bug-tag">${escapeHtml(challenge.concept)}</span></div>`;
+  }
+  html += '</div>';
+  html += `<p class="progress-summary">${completedLevels.length} de ${challenges.length} modelos concluídos</p>`;
+  dom.progressDisplay.innerHTML = html;
+}
+
+/**
+ * Renderiza o rail vertical de desafios do modo Construtor de Schema.
+ * @param {object[]} challenges todos os desafios
+ * @param {number} currentId id do desafio ativo
+ * @param {number[]} completedLevels ids concluídos
+ * @param {function(number): void} [onSelect] callback ao clicar em um desafio
+ */
+export function renderSchemaRail(challenges, currentId, completedLevels, onSelect) {
+  const rail = document.getElementById('rail-buttons-container');
+  if (!rail) return;
+  rail.innerHTML = challenges
+    .map(challenge => {
+      const done = completedLevels.includes(challenge.id);
+      const active = challenge.id === currentId;
+      const cls = [
+        'rail-mission-btn',
+        active ? 'rail-mission-btn-active' : '',
+        done ? 'rail-mission-btn-done' : '',
+      ].filter(Boolean).join(' ');
+      const prefix = done ? '✅' : `#${String(challenge.number).padStart(2, '0')}`;
+      return `
+        <button type="button" class="${cls}" title="Modelo ${challenge.number}: ${escapeHtml(challenge.title)}" data-sb-id="${challenge.id}">
+          <span>${prefix} ${escapeHtml(challenge.title)}</span>
+        </button>
+      `;
+    })
+    .join('');
+  if (typeof onSelect === 'function') {
+    rail.querySelectorAll('[data-sb-id]').forEach(btn => {
+      btn.addEventListener('click', () => onSelect(Number(btn.dataset.sbId)));
+    });
   }
 }
 

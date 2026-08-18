@@ -73,6 +73,9 @@ export const state = {
 
   /** @type {string|null} instante ISO em que o caso foi concluído */
   completedAt: null,
+
+  /** @type {Object<number, string[]>} DDL acumulado por desafio do Construtor de Schema */
+  schemaBuilderDdl: {},
 };
 
 /**
@@ -103,6 +106,7 @@ export function resetState() {
   state.interrogation = { status: 'locked', stepIndex: 0, presentedEvidenceIds: [] };
   state.lessonsRead = [];
   state.completedAt = null;
+  state.schemaBuilderDdl = {};
 }
 
 /** Cria a estrutura de progresso de um caso ainda não iniciado. */
@@ -112,6 +116,7 @@ export function createCaseProgress() {
     timelineOrder: [], timelineBonusAwarded: false, bonusPoints: 0,
     interrogation: { status: 'locked', stepIndex: 0, presentedEvidenceIds: [] },
     lessonsRead: [],
+    schemaBuilderDdl: {},
     completedAt: null,
   };
 }
@@ -134,6 +139,7 @@ export function activateCaseProgress(caseId) {
     : { status: 'locked', stepIndex: 0, presentedEvidenceIds: [] };
   state.lessonsRead = [...(progress.lessonsRead || [])];
   state.completedAt = progress.completedAt || null;
+  state.schemaBuilderDdl = { ...(progress.schemaBuilderDdl || {}) };
 }
 
 /** Persiste os campos ativos no mapa de progresso por caso. */
@@ -151,6 +157,7 @@ export function syncActiveCaseProgress() {
       ? { ...state.interrogation, presentedEvidenceIds: [...(state.interrogation.presentedEvidenceIds || [])] }
       : { status: 'locked', stepIndex: 0, presentedEvidenceIds: [] },
     lessonsRead: [...(state.lessonsRead || [])],
+    schemaBuilderDdl: { ...state.schemaBuilderDdl },
     completedAt: state.completedAt || null,
   };
 }

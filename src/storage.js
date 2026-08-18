@@ -21,6 +21,7 @@ const KNOWN_CASE_IDS = new Set([
   'case005',
   'case006',
   'bug-hunter',
+  'schema-builder',
 ]);
 
 function getDefaultCaseProgress() {
@@ -31,6 +32,7 @@ function getDefaultCaseProgress() {
     bonusPoints: 0,
     interrogation: { status: 'locked', stepIndex: 0, presentedEvidenceIds: [] },
     lessonsRead: [],
+    schemaBuilderDdl: {},
     completedAt: null,
   };
 }
@@ -38,7 +40,8 @@ function getDefaultCaseProgress() {
 export function getDefaultState() {
   const case001 = getDefaultCaseProgress();
   const bugHunter = getDefaultCaseProgress();
-  return { currentCase: 'case001', progressByCase: { case001, 'bug-hunter': bugHunter }, ...case001 };
+  const schemaBuilder = getDefaultCaseProgress();
+  return { currentCase: 'case001', progressByCase: { case001, 'bug-hunter': bugHunter, 'schema-builder': schemaBuilder }, ...case001 };
 }
 
 function isLocalStorageAvailable() {
@@ -63,7 +66,15 @@ function validateCaseProgress(data) {
     for (const key of Object.keys(data.levelProgress)) {
       const entry = data.levelProgress[key];
       if (entry && typeof entry === 'object' && typeof entry.stars === 'number') {
-        result.levelProgress[key] = { stars: entry.stars, hintsUsed: typeof entry.hintsUsed === 'number' ? entry.hintsUsed : 0 };
+        // Preserva o DDL acumulado do modo Construtor de Schema (opcional).
+        let schemaBuilderEntry = null;
+        if (entry.schemaBuilder && typeof entry.schemaBuilder === 'object' && Array.isArray(entry.schemaBuilder.ddl)) {
+          const ddl = entry.schemaBuilder.ddl.filter(item => typeof item === 'string');
+          if (ddl.length > 0) schemaBuilderEntry = { ddl };
+        }
+        const levelEntry = { stars: entry.stars, hintsUsed: typeof entry.hintsUsed === 'number' ? entry.hintsUsed : 0 };
+        if (schemaBuilderEntry) levelEntry.schemaBuilder = schemaBuilderEntry;
+        result.levelProgress[key] = levelEntry;
       }
     }
   }
@@ -92,6 +103,17 @@ function validateCaseProgress(data) {
   if (Array.isArray(data.lessonsRead)) {
     result.lessonsRead = [...new Set(data.lessonsRead.filter(id => typeof id === 'string'))];
   }
+
+  // --- Modo Construtor de Schema: DDL acumulado por nível ---
+  if (data.schemaBuilderDdl && typeof data.schemaBuilderDdl === 'object' && !Array.isArray(data.schemaBuilderDdl)) {
+    for (const key of Object.keys(data.schemaBuilderDdl)) {
+      const ddl = Array.isArray(data.schemaBuilderDdl[key])
+        ? data.schemaBuilderDdl[key].filter(item => typeof item === 'string')
+        : [];
+      if (ddl.length > 0) result.schemaBuilderDdl[key] = ddl;
+    }
+  }
+  if (!result.schemaBuilderDdl) result.schemaBuilderDdl = {};
 
   if (typeof data.completedAt === 'string' && Number.isFinite(Date.parse(data.completedAt))) {
     result.completedAt = new Date(data.completedAt).toISOString();
@@ -161,6 +183,7 @@ function serializeState(stateData) {
       bonusPoints: stateData.bonusPoints,
       interrogation: stateData.interrogation,
       lessonsRead: stateData.lessonsRead,
+      schemaBuilderDdl: stateData.schemaBuilderDdl,
       completedAt: stateData.completedAt,
     });
   }

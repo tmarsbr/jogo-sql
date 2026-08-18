@@ -188,6 +188,16 @@ function serveStaticFile(res, filePath) {
   });
 }
 
+/* --- Prompt pedagógico (revisão de schema) --- */
+
+const SYSTEM_PROMPT_SCHEMA_REVIEW = `Você é o arquiteto de dados revisor do jogo SQL Detective. Responda em português do Brasil,
+com um parecer breve, objetivo e encorajador (máximo de 120 palavras) sobre o modelo de dados
+que o jogador está construindo no desafio. Compare o DDL enviado com os requisitos do desafio
+e aponte, quando houver: entidades faltantes, chaves primárias ou estrangeiras ausentes,
+cardinalidades trocadas ou tabelas de junção N:N esquecidas. Se o modelo estiver correto,
+confirme e explique por que está bem modelado. Não entregue o DDL completo da solução, não
+use blocos de código e não crie novas tabelas no lugar do jogador. Não execute nada.`;
+
 /* --- Prompt pedagógico --- */
 
 /**
@@ -487,15 +497,276 @@ async function handleAiHintRequest(req, res, fetchImpl) {
   });
 }
 
+/* --- Handler do endpoint POST /api/ai-schema-review --- */
+
+/**
+ * Valida o corpo da requisição POST /api/ai-schema-review.
+ * @param {object} body
+ * @returns {{valid: boolean, error?: string}}
+ */
+function validateSchemaReviewRequest(body) {
+  if (!body || typeof body !== 'object') {
+    return { valid: false, error: 'Corpo inválido.' };
+  }
+
+  const { challenge, playerDdl, validationFeedback } = body;
+
+  if (!challenge || typeof challenge !== 'object') {
+    return { valid: false, error: 'challenge é obrigatório.' };
+  }
+
+  // Campos permitidos do desafio
+  const allowedChallengeFields = ['title', 'concept', 'requirements', 'summary', 'expectedTables'];
+  for (const field of allowedChallengeFields) {
+    if (field in challenge) {
+      const val = challenge[field];
+      if (field === 'expectedTables') {
+        if (!Array.isArray(val)) {
+          return { valid: false, error: 'challenge.expectedTables deve ser um array.' };
+        }
+      } else if (typeof val !== 'string') {
+        return { valid: false, error: `challenge.${field} deve ser string.` };
+      }
+    }
+  }
+
+  // Rejeita campos não permitidos no desafio
+  const knownFields = new Set(allowedChallengeFields);
+  for (const key of Object.keys(challenge)) {
+    if (!knownFields.has(key)) {
+      return { valid: false, error: `Campo não permitido: challenge.${key}` };
+    }
+  }
+
+  if (playerDdl !== undefined && typeof playerDdl !== 'string') {
+    return { valid: false, error: 'playerDdl deve ser string.' };
+  }
+
+  if (validationFeedback !== null && validationFeedback !== undefined) {
+    if (typeof validationFeedback !== 'object') {
+      return { valid: false, error: 'validationFeedback deve ser objeto ou null.' };
+    }
+    if (typeof validationFeedback.type !== 'string' || typeof validationFeedback.message !== 'string') {
+      return { valid: false, error: 'validationFeedback deve ter type e message string.' };
+    }
+  }
+
+  return { valid: true };
+}
+
+/**
+ * Monta o prompt do usuário para a revisão de schema.
+ * @param {object} ctx contexto validado
+ * @returns {string}
+ */
+function buildSchemaReviewPrompt(ctx) {
+  const parts = [];
+
+  parts.push(`Desafio: ${ctx.challenge.title}`);
+  parts.push(`Conceito: ${ctx.challenge.concept}`);
+  parts.push(`Requisitos do cliente:\n${ctx.challenge.requirements}`);
+
+  if (ctx.challenge.summary) {
+    parts.push(`Cardinalidades esperadas: ${ctx.challenge.summary}`);
+  }
+
+  if (ctx.challenge.expectedTables && ctx.challenge.expectedTables.length > 0) {
+    parts.push(`Entidades que devem existir: ${ctx.challenge.expectedTables.join(', ')}`);
+  }
+
+  if (ctx.playerDdl && ctx.playerDdl.trim()) {
+    parts.push(`DDL construído até agora pelo jogador (diagnóstico, não execute):\n---\n${ctx.playerDdl}\n---`);
+  } else {
+    parts.push('O jogador ainda não criou nenhuma tabela.');
+  }
+
+  if (ctx.validationFeedback) {
+    parts.push(`Feedback do validador local: tipo=${ctx.validationFeedback.type}, mensagem=${ctx.validationFeedback.message}`);
+  }
+
+  return parts.join('\n\n');
+}
+
+/**
+ * Sanitiza a resposta do modelo para revisão de schema, rejeitando HTML,
+blocos de código e DDL completo da solução.
+ * @param {string} review
+ * @returns {{ok: boolean, review?: string, reason?: string}}
+ */
+function sanitizeModelReview(review) {
+  if (!review || typeof review !== 'string') {
+    return { ok: false, reason: 'empty' };
+  }
+
+  const trimmed = review.trim();
+
+  if (trimmed.length === 0) {
+    return { ok: false, reason: 'empty' };
+  }
+
+  if (trimmed.length > 800) {
+    return { ok: false, reason: 'too_long' };
+  }
+
+  if (/<[a-z][\s\S]*?>/i.test(trimmed)) {
+    return { ok: false, reason: 'html' };
+  }
+
+  if (/```[\s\S]*?```/.test(trimmed)) {
+    return { ok: false, reason: 'code_block' };
+  }
+
+  // Rejeita instruções CREATE TABLE completas na resposta
+  if (/create\s+table\s+[\s\S]*?\(\s*\w+/i.test(trimmed)) {
+    return { ok: false, reason: 'full_ddl' };
+  }
+
+  return { ok: true, review: trimmed };
+}
+
+/**
+ * Faz a chamada POST para o endpoint /chat do Ollama (revisão de schema).
+ * @param {object} ctx contexto validado
+ * @param {typeof fetch} fetchImpl função fetch (injetável para testes)
+ * @returns {Promise<{ok: boolean, review?: string, error?: {code: string, message: string}}>}
+ */
+async function callOllamaSchemaReview(ctx, fetchImpl) {
+  const fetchFn = fetchImpl || fetch;
+  const url = `${OLLAMA_BASE_URL}/chat`;
+  const isCloud = OLLAMA_BASE_URL.includes('ollama.com');
+
+  if (isCloud && !OLLAMA_API_KEY) {
+    return { ok: false, error: { code: 'AI_HINTS_DISABLED', message: 'IA não configurada.' } };
+  }
+
+  const headers = { 'Content-Type': 'application/json' };
+  if (isCloud && OLLAMA_API_KEY) {
+    headers['Authorization'] = `Bearer ${OLLAMA_API_KEY}`;
+  }
+
+  const payload = {
+    model: OLLAMA_MODEL,
+    stream: false,
+    messages: [
+      { role: 'system', content: SYSTEM_PROMPT_SCHEMA_REVIEW },
+      { role: 'user', content: buildSchemaReviewPrompt(ctx) },
+    ],
+    options: { temperature: 0.3, num_predict: 400 },
+  };
+
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), OLLAMA_TIMEOUT_MS);
+
+  let response;
+  try {
+    response = await fetchFn(url, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify(payload),
+      signal: controller.signal,
+    });
+  } catch (err) {
+    clearTimeout(timer);
+    if (err && err.name === 'AbortError') {
+      return { ok: false, error: { code: 'TIMEOUT', message: 'Timeout ao contatar o modelo.' } };
+    }
+    return { ok: false, error: { code: 'NETWORK_ERROR', message: 'Erro de rede ao contatar o modelo.' } };
+  }
+
+  clearTimeout(timer);
+
+  if (!response.ok) {
+    return { ok: false, error: { code: 'UPSTREAM_ERROR', message: `Upstream retornou ${response.status}.` } };
+  }
+
+  let data;
+  try {
+    data = await response.json();
+  } catch {
+    return { ok: false, error: { code: 'INVALID_RESPONSE', message: 'Resposta inválida do modelo.' } };
+  }
+
+  const reviewText = data?.message?.content || data?.response || '';
+
+  const sanitized = sanitizeModelReview(reviewText);
+  if (!sanitized.ok) {
+    return { ok: false, error: { code: 'REVIEW_REJECTED', message: 'A resposta do modelo não atende aos critérios pedagógicos.' } };
+  }
+
+  return { ok: true, review: sanitized.review };
+}
+
+async function handleAiSchemaReviewRequest(req, res, fetchImpl) {
+  // Rate limit compartilhado com /api/ai-hint
+  const ip = getClientIp(req);
+  const rl = checkRateLimit(ip);
+  if (!rl.allowed) {
+    sendJson(res, 429, { error: { code: 'RATE_LIMITED', message: 'Limite de consultas de IA por minuto excedido.' } });
+    return;
+  }
+
+  const chunks = [];
+  let totalBytes = 0;
+
+  req.on('data', (chunk) => {
+    totalBytes += chunk.length;
+    if (totalBytes > MAX_BODY_SIZE) {
+      sendJson(res, 400, { error: { code: 'PAYLOAD_TOO_LARGE', message: 'Corpo excede o tamanho máximo.' } });
+      req.destroy();
+      return;
+    }
+    chunks.push(chunk);
+  });
+
+  req.on('end', async () => {
+    let body;
+    try {
+      const raw = Buffer.concat(chunks).toString('utf-8');
+      body = JSON.parse(raw);
+    } catch {
+      sendJson(res, 400, { error: { code: 'INVALID_JSON', message: 'JSON inválido.' } });
+      return;
+    }
+
+    const validation = validateSchemaReviewRequest(body);
+    if (!validation.valid) {
+      sendJson(res, 400, { error: { code: 'INVALID_INPUT', message: validation.error } });
+      return;
+    }
+
+    const result = await callOllamaSchemaReview(body, fetchImpl);
+
+    if (result.ok) {
+      sendJson(res, 200, { review: result.review, source: 'ollama' });
+    } else {
+      const code = result.error.code;
+      const status = code === 'AI_HINTS_DISABLED' ? 503
+        : code === 'TIMEOUT' ? 504
+        : code === 'RATE_LIMITED' ? 429
+        : 502;
+      sendJson(res, status, { error: result.error });
+    }
+  });
+
+  req.on('error', () => {
+    sendJson(res, 400, { error: { code: 'REQUEST_ERROR', message: 'Erro na requisição.' } });
+  });
+}
+
 /* --- Servidor HTTP --- */
 
 function createServer(fetchImpl) {
   return http.createServer(async (req, res) => {
     const url = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
 
-    // Endpoint da API
+    // Endpoints da API
     if (url.pathname === '/api/ai-hint' && req.method === 'POST') {
       await handleAiHintRequest(req, res, fetchImpl);
+      return;
+    }
+
+    if (url.pathname === '/api/ai-schema-review' && req.method === 'POST') {
+      await handleAiSchemaReviewRequest(req, res, fetchImpl);
       return;
     }
 
@@ -538,14 +809,20 @@ function createServer(fetchImpl) {
 module.exports = {
   createServer,
   handleAiHintRequest,
+  handleAiSchemaReviewRequest,
   validateHintRequest,
+  validateSchemaReviewRequest,
   sanitizeModelHint,
+  sanitizeModelReview,
   buildUserPrompt,
+  buildSchemaReviewPrompt,
   checkRateLimit,
   safeResolvePath,
   callOllama,
+  callOllamaSchemaReview,
   loadDotEnv,
   SYSTEM_PROMPT,
+  SYSTEM_PROMPT_SCHEMA_REVIEW,
   // Exporta configs para inspeção em testes
   getConfig: () => ({
     PORT, OLLAMA_BASE_URL, OLLAMA_MODEL, OLLAMA_TIMEOUT_MS, OLLAMA_MAX_HINTS_PER_MINUTE,

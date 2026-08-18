@@ -1,5 +1,5 @@
 /** Regressão do registry e do desbloqueio sequencial de casos. */
-const { readSource, transformESM, evalModule, loadLevels } = require('./helpers/load-source');
+const { readSource, transformESM, evalModule, loadLevels, loadSchemaBuilderChallenges } = require('./helpers/load-source');
 
 let passed = 0;
 let failed = 0;
@@ -35,59 +35,41 @@ const bugHunterLevels = {
   BUG_HUNTER_CONCLUSION: { title: 'Modo concluído' },
   BUG_CHALLENGES: [],
 };
-const managerCode = `
-const case001Levels = __case001Levels;
-const case002Levels = __case002Levels;
-const case003Levels = __case003Levels;
-const case004Levels = __case004Levels;
-const case005Levels = __case005Levels;
-const case006Levels = __case006Levels;
-const bugHunterLevels = __bugHunterLevels;
-const projEcommerceLevels = __projEcommerceLevels;
-const projClientesLevels = __projClientesLevels;
-const projVendasLevels = __projVendasLevels;
-const projMarketingLevels = __projMarketingLevels;
-const projLogisticaLevels = __projLogisticaLevels;
-const projEstoqueLevels = __projEstoqueLevels;
-const projEducacaoLevels = __projEducacaoLevels;
-const projSaudeLevels = __projSaudeLevels;
-const projFinanceiroLevels = __projFinanceiroLevels;
-const projSuporteLevels = __projSuporteLevels;
-const projPublicoLevels = __projPublicoLevels;
-const projFutebolLevels = __projFutebolLevels;
-${transformESM(readSource('case-manager.js'))}`;
+const schemaBuilderLevels = loadSchemaBuilderChallenges();
+const managerCode = transformESM(readSource('case-manager.js'));
 const manager = evalModule(managerCode, {
-  __case001Levels: legacyLevels,
-  __case002Levels: case002Levels,
-  __case003Levels: case003Levels,
-  __case004Levels: case004Levels,
-  __case005Levels: case005Levels,
-  __case006Levels: case006Levels,
-  __projEcommerceLevels: projEcommerceLevels,
-  __projClientesLevels: projClientesLevels,
-  __projVendasLevels: projVendasLevels,
-  __projMarketingLevels: projMarketingLevels,
-  __projLogisticaLevels: projLogisticaLevels,
-  __projEstoqueLevels: projEstoqueLevels,
-  __projEducacaoLevels: projEducacaoLevels,
-  __projSaudeLevels: projSaudeLevels,
-  __projFinanceiroLevels: projFinanceiroLevels,
-  __projSuporteLevels: projSuporteLevels,
-  __projPublicoLevels: projPublicoLevels,
-  __projFutebolLevels: projFutebolLevels,
-  __bugHunterLevels: bugHunterLevels,
+  case001Levels: legacyLevels,
+  case002Levels: case002Levels,
+  case003Levels: case003Levels,
+  case004Levels: case004Levels,
+  case005Levels: case005Levels,
+  case006Levels: case006Levels,
+  projEcommerceLevels: projEcommerceLevels,
+  projClientesLevels: projClientesLevels,
+  projVendasLevels: projVendasLevels,
+  projMarketingLevels: projMarketingLevels,
+  projLogisticaLevels: projLogisticaLevels,
+  projEstoqueLevels: projEstoqueLevels,
+  projEducacaoLevels: projEducacaoLevels,
+  projSaudeLevels: projSaudeLevels,
+  projFinanceiroLevels: projFinanceiroLevels,
+  projSuporteLevels: projSuporteLevels,
+  projPublicoLevels: projPublicoLevels,
+  projFutebolLevels: projFutebolLevels,
+  bugHunterLevels: bugHunterLevels,
+  schemaBuilderLevels: schemaBuilderLevels,
 }, 'case-manager.js');
 
 console.log('\n=== Case Manager ===');
 const allCases = manager.getAllCases();
-assert(allCases.length === 19, 'Registry contém dezenove cenários no total (6 investigações + 12 projetos + Bug Hunter)');
+assert(allCases.length === 20, 'Registry contém vinte cenários no total (6 investigações + 12 projetos + Bug Hunter + Construtor de Schema)');
 assert(
-  allCases.filter(item => item.id !== 'bug-hunter').every(item => item.DATABASE_ANALYSIS),
-  'Todos os casos (exceto Bug Hunter) expõem a Etapa 0 de análise do banco',
+  allCases.filter(item => !['bug-hunter', 'schema-builder'].includes(item.id)).every(item => item.DATABASE_ANALYSIS),
+  'Todos os casos (exceto Bug Hunter e Construtor de Schema) expõem a Etapa 0 de análise do banco',
 );
 assert(
-  manager.getInvestigations().length === 7 && manager.getInvestigations().some(item => item.id === 'bug-hunter'),
-  'getInvestigations retorna 7 itens investigativos incluindo o Modo Bug Hunter',
+  manager.getInvestigations().length === 8 && manager.getInvestigations().some(item => item.id === 'bug-hunter') && manager.getInvestigations().some(item => item.id === 'schema-builder'),
+  'getInvestigations retorna 8 itens investigativos incluindo o Bug Hunter e o Construtor de Schema',
 );
 assert(manager.getProjects().length === 12, 'getProjects retorna 12 projetos de análise de dados');
 assert(manager.getCaseById('case005').number === '005' && manager.getCaseById('case006').number === '006', 'Novos casos mantêm numeração investigativa com três dígitos');

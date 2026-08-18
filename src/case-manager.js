@@ -21,6 +21,7 @@ import * as projFutebolLevels from './cases/proj-futebol/levels.js';
 import * as case005Levels from './cases/case005/levels.js';
 import * as case006Levels from './cases/case006/levels.js';
 import * as bugHunterLevels from './cases/bug-hunter.js';
+import * as schemaBuilderLevels from './cases/schema-challenges.js';
 
 export const CASE_REGISTRY = [
   {
@@ -143,12 +144,28 @@ export const CASE_REGISTRY = [
     CASE_CONCLUSION: bugHunterLevels.BUG_HUNTER_CONCLUSION,
     ...bugHunterLevels,
   },
+  {
+    id: 'schema-builder', number: 'SB', icon: '🏗️', lockedByDefault: false, type: 'schema-builder',
+    title: 'Modo Construtor de Schema', category: 'Modelagem de Dados',
+    description: 'Desenhe modelos de dados do zero a partir de requisitos em linguagem natural: tabelas, PKs, FKs, cardinalidades N:N — com revisão de coerência pela IA arquiteta.',
+    CASE_INTRO: {
+      title: schemaBuilderLevels.SCHEMA_BUILDER_INTRO.title,
+      subtitle: schemaBuilderLevels.SCHEMA_BUILDER_INTRO.subtitle,
+      story: schemaBuilderLevels.SCHEMA_BUILDER_INTRO.story,
+      mission: 'Desenhe todos os modelos de dados para concluir o modo.',
+    },
+    CASE_CONCLUSION: schemaBuilderLevels.SCHEMA_BUILDER_CONCLUSION,
+    GAMEPLAY: {
+      challenges: schemaBuilderLevels.SCHEMA_CHALLENGES,
+    },
+    ...schemaBuilderLevels,
+  },
 ];
 
 export function getAllCases() { return CASE_REGISTRY; }
 
 export function getInvestigations() {
-  return CASE_REGISTRY.filter(item => item.type === 'investigation' || !item.type || item.type === 'bug-hunter');
+  return CASE_REGISTRY.filter(item => item.type === 'investigation' || !item.type || item.type === 'bug-hunter' || item.type === 'schema-builder');
 }
 
 export function getProjects() {
@@ -167,6 +184,12 @@ export function isCaseComplete(caseDefinition, progressByCase = {}) {
   if (caseDefinition.type === 'bug-hunter') {
     const completed = new Set(progress.completedLevels);
     return (caseDefinition.BUG_CHALLENGES || []).every(challenge => completed.has(challenge.id));
+  }
+
+  // Modo Construtor de Schema: conclui quando todos os desafios de modelagem foram concluídos.
+  if (caseDefinition.type === 'schema-builder') {
+    const completed = new Set(progress.completedLevels);
+    return (caseDefinition.SCHEMA_CHALLENGES || []).every(challenge => completed.has(challenge.id));
   }
 
   const completed = new Set(progress.completedLevels);
@@ -191,9 +214,11 @@ export function getAvailableCases(progressByCase = {}) {
   const projects = getProjects();
   const availableProjects = projects.filter(project => !project.lockedByDefault);
 
-  // Modos especiais (ex.: bug-hunter) desbloqueiam por disponibilidade própria,
+  // Modos especiais (ex.: bug-hunter e schema-builder) desbloqueiam por disponibilidade própria,
   // sem depender do encadeamento investigativo.
-  const specialModes = CASE_REGISTRY.filter(item => item.type === 'bug-hunter' && !item.lockedByDefault);
+  const specialModes = CASE_REGISTRY.filter(item =>
+    (item.type === 'bug-hunter' || item.type === 'schema-builder') && !item.lockedByDefault
+  );
 
   return [...availableInvestigations, ...specialModes, ...availableProjects];
 }
