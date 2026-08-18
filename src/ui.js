@@ -1528,3 +1528,261 @@ export function showStartInterrogationButton(show) {
 export function renderFromState() {
   setMissionStatus(state.currentLevel ? `Missão ${state.currentLevel}` : 'Missão: —');
 }
+
+/* --- Boss Fight UI --- */
+
+/**
+ * Renderiza o briefing do step ativo do Boss Fight no painel principal.
+ * @param {object} battle dados da batalha
+ * @param {object} step step ativo
+ * @param {number} elapsedMs tempo decorrido total (ms)
+ * @param {number} remaining número de steps restantes (0 na vitória)
+ */
+export function renderBossBriefing(battle, step, elapsedMs, remaining) {
+  if (!dom.briefingContent) return;
+
+  const isView = step.executionMode === 'create_view';
+  const isMutation = step.executionMode === 'ddl';
+  const modeTag = isView ? 'CRIAR VIEW' : isMutation ? 'ALTERAR BANCO' : 'CONSULTA';
+  const tables = (step.tables || []).map(name => `<span class="table-tag">${escapeHtml(name)}</span>`).join(' ');
+
+  dom.briefingContent.innerHTML = `
+    <div class="boss-briefing">
+      <div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 10px;">
+        <span class="pill-badge boss-tag">⚔ BOSS FIGHT</span>
+        <span class="pill-badge" style="border-color: rgba(244,114,182,.4); color: #F9A8D4; background: rgba(244,114,182,.08);">${escapeHtml(battle.caseTitle)}</span>
+        <span class="pill-badge concept-tag">${escapeHtml(modeTag)}</span>
+        <span class="pill-badge timer-pill" style="border-color: rgba(250,204,21,.45); color: #FCD34D; background: rgba(250,204,21,.08); font-variant-numeric: tabular-nums;">⏱ <span id="boss-timer-readout">${formatBossTime(elapsedMs)}</span></span>
+      </div>
+      <h1 class="mission-title" style="margin-bottom: 2px;">${escapeHtml(battle.title)} · <span style="color: var(--accent-cyan);">${escapeHtml(step.title)}</span></h1>
+      <p class="mission-briefing-text" style="margin-top: 10px;">${escapeHtml(step.briefing)}</p>
+      ${remaining > 0 ? `<p class="mission-briefing-text" style="color: var(--text-subdued); margin-top: 6px;">${remaining} etapa(s) restantes nesta batalha.</p>` : ''}
+      <div class="mission-objective" style="margin-top: 14px;">
+        <strong>OBJETIVO</strong>
+        <p style="margin: 0;">${escapeHtml(step.objective)}</p>
+      </div>
+      ${tables ? `<p class="tables-list" style="margin-top: 12px;"><strong>TABELAS:</strong> ${tables}</p>` : ''}
+      <div class="mission-objective" style="margin-top: 14px; background: rgba(244,114,182,.05); border-color: rgba(244,114,182,.35);">
+        <strong>⚠ REGRA DO BOSS FIGHT</strong>
+        <p style="margin: 0;">Sem dicas. Sem salvamento parcial. Pontuação por eficiência: bônus de tempo, penalidade por erros de SQL.</p>
+      </div>
+    </div>
+  `;
+}
+
+/**
+ * Renderiza a trilha de steps do boss no rail (seção de ações do briefing).
+ * @param {object} battle
+ * @param {object} step step ativo
+ * @param {string[]} completedSteps ids concluídos
+ */
+export function renderBossRail(battle, step, completedSteps) {
+  if (!dom.railContainer) return;
+  const done = new Set(completedSteps || []);
+  let html = '';
+  for (let i = 0; i < battle.steps.length; i++) {
+    const s = battle.steps[i];
+    const isDone = done.has(s.id);
+    const isActive = s.id === (step && step.id);
+    const icon = isDone ? '✓' : isActive ? '▸' : `${i + 1}`;
+    const cls = isActive ? 'rail-step active' : isDone ? 'rail-step done' : 'rail-step pending';
+    const badge = isActive ? ' <span class="pill-badge" style="font-size: 8.5px; padding: 2px 6px; border-color: rgba(34,197,94,.5); color: #4ADE80;">EM CURSO</span>' : '';
+    html += `<button type="button" class="btn ${cls}" data-boss-step="${escapeHtml(s.id)}" ${isActive ? '' : 'disabled style="opacity:.55; cursor: not-allowed;"'}>STEP ${i + 1}: ${escapeHtml(s.title)}${badge}</button>`;
+  }
+  dom.railContainer.innerHTML = `<div style="display: flex; flex-direction: column; gap: 6px; width: 100%;">${html}</div>`;
+}
+
+/**
+ * Atualiza apenas a leitura do timer (pill), sem reconstruir o briefing.
+ * @param {number} elapsedMs
+ */
+export function updateBossTimerReadout(elapsedMs) {
+  const readout = document.getElementById('boss-timer-readout');
+  if (readout) readout.textContent = formatBossTime(elapsedMs);
+}
+
+/**
+ * Renderiza o feedback do validador de missões no painel de resultados
+ * durante a batalha de boss (mesmo contrato visual dos demais modos).
+ * @param {{type: string, message: string}} feedback
+ */
+export function renderBossFeedback(feedback) {
+  if (!dom.resultsContainer || !feedback) return;
+  let cls = 'feedback';
+  let label = '';
+
+  switch (feedback.type) {
+    case 'correct':
+      cls = 'feedback feedback-success';
+      label = '✓ CORRETO.';
+      break;
+    case 'wrong_result':
+      cls = 'feedback feedback-warn';
+      label = '✕ RESULTADO INCORRETO.';
+      break;
+    case 'missing_concept':
+      cls = 'feedback feedback-warn';
+      label = '⚠ CONCEITO AUSENTE.';
+      break;
+    case 'sql_error':
+      cls = 'feedback feedback-error';
+      label = '⚠ ERRO DE SQL.';
+      break;
+    case 'missing_columns':
+      cls = 'feedback feedback-warn';
+      label = '⚠ COLUNAS AUSENTES.';
+      break;
+    case 'blocked':
+      cls = 'feedback feedback-error';
+      label = '⛔ COMANDO BLOQUEADO.';
+      break;
+    default:
+      cls = 'feedback feedback-warn';
+      label = '⚠ RESULTADO.';
+  }
+
+  const existing = dom.resultsContainer.querySelector('.feedback');
+  if (existing) existing.remove();
+  const div = document.createElement('div');
+  div.className = cls;
+  div.innerHTML = `<strong style="font-family: var(--font-mono); letter-spacing: .06em;">${label}</strong> ${escapeHtml(feedback.message)}`;
+  dom.resultsContainer.appendChild(div);
+}
+
+/**
+ * Renderiza o painel DICAS no modo boss: aviso fixo, sem revelações.
+ */
+export function renderBossHintsBanner() {
+  if (dom.hintsDisplay) {
+    dom.hintsDisplay.innerHTML = `
+      <div class="mission-objective" style="margin-top: 4px; background: rgba(244,114,182,.05); border-color: rgba(244,114,182,.35);">
+        <strong>⚔ BOSS MODE</strong>
+        <p style="margin: 0;">Sem reforços. Um investigador de verdade resolve sem ajuda externa.</p>
+      </div>
+    `;
+  }
+  if (dom.btnHint) {
+    dom.btnHint.textContent = 'BOSS MODE — SEM DICAS';
+    dom.btnHint.disabled = true;
+    dom.btnHint.hidden = true;
+  }
+}
+
+function formatBossTime(ms) {
+  const total = Math.max(0, Math.floor(ms / 1000));
+  const m = Math.floor(total / 60);
+  const s = total % 60;
+  return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+}
+
+/**
+ * Mostra a tela de convite para a batalha de boss ao concluir um caso.
+ * @param {object} battle
+ * @param {function} onStart callback ao aceitar
+ * @param {function} [onSkip] callback ao dispensar
+ */
+export function showBossInvitation(battle, onStart, onSkip) {
+  if (!dom.briefingContent) return;
+  dom.briefingContent.innerHTML = `
+    <div class="boss-briefing">
+      <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 10px;">
+        <span class="pill-badge boss-tag">⚔ BOSS FIGHT</span>
+        <span class="pill-badge" style="border-color: rgba(250,204,21,.45); color: #FCD34D; background: rgba(250,204,21,.08);">DESBLOQUEADO</span>
+      </div>
+      <h1 class="mission-title">${escapeHtml(battle.title)}</h1>
+      <p class="mission-briefing-text" style="margin-top: 10px;">${escapeHtml(battle.story)}</p>
+      <div class="mission-objective" style="margin-top: 14px;">
+        <strong>COMO FUNCIONA</strong>
+        <p style="margin: 0;">${battle.steps.length} etapas encadeadas sobre o banco que você acabou de montar. Sem dicas, com cronômetro e pontuação por eficiência. É bônus: pular não bloqueia o próximo caso.</p>
+      </div>
+    </div>
+    <div style="display: flex; gap: 10px; margin-top: 16px;">
+      <button type="button" id="btn-boss-start" class="btn btn-primary" style="flex: 1;">INICIAR BOSS FIGHT</button>
+      <button type="button" id="btn-boss-skip" class="btn btn-secondary">PULAR (BÔNUS)</button>
+    </div>
+  `;
+  const btnStart = document.getElementById('btn-boss-start');
+  const btnSkip = document.getElementById('btn-boss-skip');
+  if (btnStart) btnStart.addEventListener('click', onStart);
+  if (btnSkip && onSkip) btnSkip.addEventListener('click', onSkip);
+}
+
+/**
+ * Modal de vitória do Boss Fight com estatísticas de eficiência.
+ * @param {object} battle
+ * @param {{elapsedMs: number, attempts: number, sqlErrors: number, score: number, stars: number}} stats
+ */
+export function showBossVictoryModal(battle, stats) {
+  let modal = document.getElementById('boss-modal');
+  if (!modal) {
+    modal = document.createElement('div');
+    modal.id = 'boss-modal';
+    modal.className = 'modal-overlay';
+    modal.setAttribute('role', 'dialog');
+    modal.setAttribute('aria-modal', 'true');
+    modal.setAttribute('aria-labelledby', 'boss-modal-title');
+    modal.innerHTML = `
+      <div class="modal-content" style="max-width: 480px; border-color: var(--accent-purple);">
+        <h2 id="boss-modal-title" class="modal-title"></h2>
+        <div id="boss-modal-body"></div>
+        <div class="modal-actions" style="margin-top: 16px; display: flex; justify-content: flex-end;">
+          <button type="button" id="btn-boss-victory-ok" class="btn btn-success">VITÓRIA! ✅</button>
+        </div>
+      </div>
+    `;
+    document.body.appendChild(modal);
+  }
+  const titleEl = document.getElementById('boss-modal-title');
+  const bodyEl = document.getElementById('boss-modal-body');
+
+  if (titleEl) titleEl.textContent = battle.title;
+  if (bodyEl) {
+    const starsHtml = '★'.repeat(stats.stars) + '☆'.repeat(3 - stats.stars);
+    const m = Math.floor(stats.elapsedMs / 60000);
+    const s = Math.floor((stats.elapsedMs % 60000) / 1000);
+    const accuracy = stats.attempts > 0
+      ? Math.round((1 - stats.sqlErrors / stats.attempts) * 100)
+      : 100;
+    bodyEl.innerHTML = `
+      <div style="margin-bottom: 12px;">${escapeHtml(battle.conclusion)}</div>
+      <div class="conclusion-stats-grid">
+        <div class="conclusion-stat-card">
+          <div class="conclusion-stat-val" style="color: var(--accent-cyan);">${stats.score}</div>
+          <div class="conclusion-stat-label">PONTOS DE EFICIÊNCIA</div>
+        </div>
+        <div class="conclusion-stat-card">
+          <div class="conclusion-stat-val" style="color: var(--status-warning);">${starsHtml}</div>
+          <div class="conclusion-stat-label">PRECISÃO</div>
+        </div>
+        <div class="conclusion-stat-card">
+          <div class="conclusion-stat-val" style="color: var(--status-success-light);">${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}</div>
+          <div class="conclusion-stat-label">TEMPO TOTAL</div>
+        </div>
+        <div class="conclusion-stat-card">
+          <div class="conclusion-stat-val" style="color: #F9A8D4;">${accuracy}%</div>
+          <div class="conclusion-stat-label">TAXA DE ACERTO</div>
+        </div>
+      </div>
+    `;
+  }
+  modal.hidden = false;
+
+  // Fecha o modal ao clicar no botão de confirmação, no overlay ou na tecla Escape.
+  const btnOk = document.getElementById('btn-boss-victory-ok');
+  if (btnOk) btnOk.addEventListener('click', hideBossVictoryModal, { once: true });
+  modal.addEventListener('click', (e) => {
+    if (e.target === modal) hideBossVictoryModal();
+  }, { once: true });
+  const onEscape = (e) => {
+    if (e.key === 'Escape' && !modal.hidden) {
+      hideBossVictoryModal();
+      document.removeEventListener('keydown', onEscape);
+    }
+  };
+  document.addEventListener('keydown', onEscape);
+}
+
+export function hideBossVictoryModal() {
+  const modal = document.getElementById('boss-modal');
+  if (modal) modal.hidden = true;
+}

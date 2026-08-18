@@ -6,7 +6,7 @@ import { state, activateCaseProgress, syncActiveCaseProgress, createCaseProgress
 import { initDB, getSchemaText, getDB, getSchemaDetailed } from './db.js';
 import { executeQuery } from './executor.js';
 import { getCaseById, isCaseAvailable, isCaseComplete, getInvestigations, getProjects } from './case-manager.js';
-import { validateLevel, FEEDBACK_CORRECT } from './validator.js';
+import { validateLevel, FEEDBACK_CORRECT, FEEDBACK_SQL_ERROR } from './validator.js';
 import { validateBugChallenge, BH_FEEDBACK_CORRECT, BH_FEEDBACK_BUG_NOT_FIXED } from './bug-hunter-validator.js';
 import { validateSchemaChallenge, SB_FEEDBACK_CORRECT, SB_FEEDBACK_BLOCKED,
          executeMultipleStatements, findForbiddenKeyword, mergeSchemaStatements,
@@ -88,6 +88,17 @@ import { getCourseContentById } from './course-content.js';
 import { buildHintContext, requestAiHint } from './ai-hints.js';
 import { getUnlockedEvents, normalizeOrder, moveEvent, checkTimelineBonus } from './timeline.js';
 import { showCertificateModal } from './certificate.js';
+import {
+  getBattle, isBossCase, isBossStepId, isBossAvailable, getActiveStep,
+  normalizeBossState, startBattle, validateBossStep, completeStep,
+  isBattleWon, winBattle, elapsedMs as bossElapsedMs,
+  computeBossScore, computeBossStars,
+} from './boss-fight.js';
+import {
+  renderBossBriefing, renderBossRail, updateBossTimerReadout,
+  renderBossHintsBanner, showBossInvitation, showBossVictoryModal,
+  hideBossVictoryModal,
+} from './ui.js';
 import { deriveSuspicion } from './suspect-meter.js';
 import { startInterrogation, presentEvidence } from './interrogation.js';
 import { initSfx, setSfxEnabled, isSfxEnabled, playTypingSound, playAlertSound, playSuccessSound } from './sfx.js';
@@ -130,6 +141,141 @@ function getActiveSchemaDdl() {
   const challengeId = state.currentLevel;
   const saved = state.schemaBuilderDdl[challengeId];
   return Array.isArray(saved) ? saved.join('\n') : '';
+}
+
+/** Verifica se o cenário ativo é um step do Boss Fight. */
+function isBossFightMode() {
+  return isBossStepId(state.currentLevel) && Boolean(getBattle(state.currentCase));
+}
+
+/** Obtém a batalha do boss do caso ativo. */
+function getActiveBossBattle() {
+  return getBattle(state.currentCase);
+}
+
+let bossTimerHandle = null;
+
+/**
+ * Inicia (ou reinicia) o cronômetro do Boss Fight ativo. Atualiza o painel
+ * a cada segundo e encerra o intervalo automaticamente quando o jogador sai
+ * do modo boss.
+ */
+function startBossTimer() {
+  if (bossTimerHandle) clearInterval(bossTimerHandle);
+  if (!isBossFightMode()) return;
+  bossTimerHandle = setInterval(() => {
+    if (!isBossFightMode()) {
+      clearInterval(bossTimerHandle);
+      bossTimerHandle = null;
+      return;
+    }
+    const battle = getActiveBossBattle();
+    const bossState = normalizeBossState(state.bossByCase[state.currentCase] || {});
+    updateBossTimerReadout(bossElapsedMs(battle, bossState));
+  }, 1000);
+  // Primeira atualização imediata.
+  const battle = getActiveBossBattle();
+  const bossState = normalizeBossState(state.bossByCase[state.currentCase] || {});
+  updateBossTimerReadout(bossElapsedMs(battle, bossState));
+}
+
+/**
+ * Encerra o modo boss e decide o fluxo final: se o caso possui uma batalha
+ * disponível (não vencida e, quando há interrogatório, vencido), oferece o
+ * Boss Fight; caso contrário, exibe a conclusão do caso.
+ * @param {object} activeCase
+ */
+function offerOrConclude(activeCase) {
+  if (bossTimerHandle) {
+    clearInterval(bossTimerHandle);
+    bossTimerHandle = null;
+  }
+  const battle = getBattle(state.currentCase);
+  const bossState = normalizeBossState(state.bossByCase[state.currentCase] || {});
+  const interrogation = state.interrogation || {};
+  if (battle && isBossAvailable(battle, bossState, interrogation)) {
+    showBossInvitation(
+      battle,
+      () => {
+        const startResult = startBattle(battle, bossState);
+        state.bossByCase[state.currentCase] = startResult.state;
+        persistState();
+        const firstStep = battle.steps.find(s => !bossState.completedSteps.includes(s.id));
+        if (firstStep) {
+          loadMission(firstStep.id);
+        } else {
+          loadMission(battle.steps[0].id);
+        }
+        startBossTimer();
+      },
+      () => {
+        showActiveCaseConclusion(activeCase);
+      }
+    );
+  } else {
+    showActiveCaseConclusion(activeCase);
+  }
+}
+
+/**
+ * Carrega um step do Boss Fight: briefing, trilha de steps, bloqueio de dicas
+ * e painel de resultados em branco.
+ * @param {string} stepId id do step (ex: boss-006-2)
+ */
+function loadBossFight(stepId) {
+  const battle = getActiveBossBattle();
+  if (!battle) return;
+  const rawState = state.bossByCase[state.currentCase] || {};
+  const bossState = normalizeBossState(rawState);
+  if (bossState.status !== 'active') return;
+  const step = battle.steps.find(s => s.id === stepId);
+  if (!step) return;
+
+  state.currentLevel = stepId;
+  state.hintsRevealed = [];
+  state.queryExecuted = false;
+  state.lastValidationFeedback = null;
+  state.hintRequestInFlight = false;
+  state.activeHintRequestToken = null;
+  document.dispatchEvent(new CustomEvent('mission-changed'));
+
+  const elapsed = bossElapsedMs(battle, bossState);
+  const remaining = battle.steps.length - bossState.completedSteps.length - (bossState.completedSteps.includes(stepId) ? 0 : 1);
+  renderBossBriefing(battle, step, elapsed, Math.max(0, remaining));
+  renderBossRail(battle, step, bossState.completedSteps);
+  renderBossHintsBanner();
+
+  setMissionStatus('⚔ BOSS FIGHT');
+  setResults('<p class="placeholder-text">Aguardando comando. Escreva sua query e execute.</p>');
+  clearEditor();
+  enableEditorButtons(true);
+
+  const activeStep = getActiveStep(battle, bossState);
+  const btnNext = document.getElementById('btn-next');
+  if (btnNext) btnNext.hidden = !activeStep || activeStep.id !== stepId;
+
+  showTabs();
+  configureSidebarTabs({ graph: false, timeline: false, suspects: false, lesson: false });
+
+  // Esconde os painéis laterais de gameplay: o boss usa apenas o editor.
+  const sidebarPanes = [
+    'sidebar-pane-lesson', 'sidebar-pane-graph', 'sidebar-pane-timeline',
+    'sidebar-pane-suspects', 'sidebar-pane-hints',
+  ];
+  for (const paneId of sidebarPanes) {
+    const pane = document.getElementById(paneId);
+    if (pane) pane.hidden = true;
+  }
+  const sidebarTabsNav = document.getElementById('sidebar-tabs-nav');
+  if (sidebarTabsNav) sidebarTabsNav.hidden = true;
+  const tabsNav = document.getElementById('tabs-nav');
+  if (tabsNav) tabsNav.hidden = true;
+
+  // O banco do boss já contém as views das missões concluídas (restaurado no startGame).
+  setSchema(getSchemaText());
+  renderFromState();
+
+  startBossTimer();
 }
 
 function getLockedMissionIds(caseDefinition, completedLevels = state.completedLevels) {
@@ -454,6 +600,7 @@ function persistState() {
     lessonsRead: state.lessonsRead,
     schemaBuilderDdl: state.schemaBuilderDdl,
     completedAt: state.completedAt,
+    bossByCase: state.bossByCase,
   });
 }
 
@@ -537,6 +684,12 @@ function loadMission(levelId) {
   if (lockedMissionIds.includes(levelId)) {
     const completed = new Set(state.completedLevels);
     levelId = activeCase.LEVELS.find(level => !completed.has(level.id))?.id ?? levelId;
+  }
+
+  // --- Boss Fight: battle multi-etapas pós-caso (ids de string 'boss-NNN-M') ---
+  if (isBossStepId(levelId)) {
+    loadBossFight(levelId);
+    return;
   }
 
   // --- Modo Bug Hunter: desafios de debug (ids de string 'bug-N') ---
@@ -856,7 +1009,12 @@ function renderBugChallenge(challenge) {
 function restoreProgress() {
   const saved = loadState();
   state.progressByCase = saved.progressByCase || { case001: saved };
+  // Gameplay: restaura o estado das batalhas de boss por caso (fonte de verdade: nível superior do LS).
+  state.bossByCase = saved.bossByCase || {};
+  // NOTE: activateCaseProgress copia progress.bossFight para state.bossByCase;
+  // o estado de nível superior é aplicado DEPOIS para prevalecer sobre o espelho antigo.
   activateCaseProgress(saved.currentCase || 'case001');
+  state.bossByCase = saved.bossByCase || {};
 }
 
 /**
@@ -937,6 +1095,18 @@ async function init() {
     document.addEventListener('click', initAudioOnGesture, { once: true });
     document.addEventListener('keydown', initAudioOnGesture, { once: true });
     document.addEventListener('touchstart', initAudioOnGesture, { once: true });
+
+    // Navegação pelo rail do Boss Fight: cada step do rail carrega a etapa correspondente.
+    const railContainer = document.getElementById('rail-buttons-container');
+    if (railContainer) {
+      railContainer.addEventListener('click', (e) => {
+        const btn = e.target.closest('[data-boss-step]');
+        if (!btn || btn.disabled) return;
+        if (isBossFightMode()) {
+          loadMission(btn.dataset.bossStep);
+        }
+      });
+    }
 
     // Botão Iniciar da tela inicial
     const btnStart = document.getElementById('btn-start');
@@ -1040,16 +1210,47 @@ async function startGame(caseId = state.currentCase) {
         levelToLoad = (firstIncomplete || challenges[challenges.length - 1]).id;
       }
     } else {
-      const invalidSavedLevel = !Number.isInteger(levelToLoad) || levelToLoad < 1 || levelToLoad > totalLevels;
-      if (invalidSavedLevel || (state.completedLevels.includes(levelToLoad) && levelToLoad < totalLevels)) {
-        levelToLoad = null;
-        for (let i = 1; i <= totalLevels; i++) {
-          if (!state.completedLevels.includes(i)) {
-            levelToLoad = i;
-            break;
-          }
+      const bossBattle = getBattle(state.currentCase);
+      const bossState = normalizeBossState(state.bossByCase[state.currentCase]);
+      if (isBossStepId(levelToLoad)) {
+        // Retomada de batalha de boss em andamento: restaura o step ativo.
+        if (bossBattle && bossState.status === 'active' && bossBattle.steps.some(s => s.id === levelToLoad)) {
+          // levelToLoad já é o step salvo; nada a ajustar.
+        } else if (bossBattle && bossState.status === 'active') {
+          levelToLoad = getActiveStep(bossBattle, bossState)?.id || null;
+        } else {
+          levelToLoad = null;
         }
-        if (!levelToLoad) levelToLoad = totalLevels;
+      } else if (bossBattle && bossState.status === 'active') {
+        // Caso salvo em missão normal, mas com batalha ativa: se todas as missões
+        // já foram concluídas, retoma a batalha do boss; senão mantém a missão normal.
+        const allDone = state.completedLevels.length >= totalLevels;
+        if (allDone) {
+          levelToLoad = getActiveStep(bossBattle, bossState)?.id || null;
+        } else {
+          levelToLoad = null;
+          for (let i = 1; i <= totalLevels; i++) {
+            if (!state.completedLevels.includes(i)) {
+              levelToLoad = i;
+              break;
+            }
+          }
+          if (!levelToLoad) levelToLoad = totalLevels;
+        }
+      }
+      if (!isBossStepId(levelToLoad)) {
+        // Nivel salvo inválido (null, fora do intervalo ou tipo inesperado) volta à primeira missão pendente.
+        const invalidSavedLevel = !levelToLoad || !Number.isInteger(levelToLoad) || levelToLoad < 1 || levelToLoad > totalLevels;
+        if (invalidSavedLevel || (state.completedLevels.includes(levelToLoad) && levelToLoad < totalLevels)) {
+          levelToLoad = null;
+          for (let i = 1; i <= totalLevels; i++) {
+            if (!state.completedLevels.includes(i)) {
+              levelToLoad = i;
+              break;
+            }
+          }
+          if (!levelToLoad) levelToLoad = totalLevels;
+        }
       }
     }
     loadMission(levelToLoad);
@@ -1118,6 +1319,78 @@ function initBasicEvents() {
       if (!state.currentLevel) { setResults('<div class="feedback feedback-error">Nenhuma missão ativa.</div>'); return; }
 
       const activeCase = getActiveCase();
+      // --- Boss Fight: validação de step contra o banco do caso ---
+      if (isBossFightMode()) {
+        try {
+        const battle = getActiveBossBattle();
+        const bossState = normalizeBossState(state.bossByCase[state.currentCase] || {});
+        const step = getActiveStep(battle, bossState);
+        if (!step) { setResults('<div class="feedback feedback-error">Batalha encerrada. Retorne às missões.</div>'); return; }
+
+        const { feedback, state: updatedBoss } = validateBossStep(sql, step, db, bossState);
+        state.bossByCase[state.currentCase] = updatedBoss;
+        persistState();
+
+        if (feedback.result) renderResults(feedback.result);
+        renderBossFeedback(feedback);
+
+        state.lastValidationFeedback = {
+          type: feedback.type,
+          message: feedback.message,
+          missingConcepts: feedback.missingConcepts || undefined,
+          missingColumns: feedback.missingColumns || undefined,
+        };
+
+        if (feedback.type === FEEDBACK_CORRECT) {
+          const withStep = completeStep(updatedBoss, step);
+          state.bossByCase[state.currentCase] = withStep;
+
+          if (step.executionMode === 'create_view' || step.executionMode === 'ddl') {
+            setSchema(getSchemaText());
+          }
+
+          if (isBattleWon(battle, withStep)) {
+            const elapsed = bossElapsedMs(battle, withStep);
+            const won = winBattle(battle, withStep, elapsed);
+            state.bossByCase[state.currentCase] = won;
+            state.score += won.scoreAwarded;
+            state.bossByCase[state.currentCase] = won;
+            persistState();
+            renderScore(state.score, calculateTotalStars(state.levelProgress), calculateMaxStars(activeCase.getTotalLevels()));
+            playSuccessSound();
+            enableEditorButtons(false);
+            const help = document.getElementById('editor-help');
+            if (help) help.textContent = 'Batalha vencida! O bônus foi registrado no placar.';
+            showBossVictoryModal(battle, {
+              elapsedMs: elapsed,
+              attempts: won.executionAttempts,
+              sqlErrors: won.sqlErrors,
+              score: won.scoreAwarded,
+              stars: computeBossStars(won.sqlErrors),
+            });
+            return;
+          }
+
+          persistState();
+          const nextStep = getActiveStep(battle, withStep);
+          if (nextStep) {
+            loadMission(nextStep.id);
+          } else {
+            loadBossFight(step.id);
+          }
+          startBossTimer();
+          return;
+        }
+
+        if (feedback.type === FEEDBACK_SQL_ERROR) {
+          playAlertSound();
+        } else {
+          playTypingSound();
+        }
+        updateBossTimerReadout(bossElapsedMs(battle, updatedBoss));
+        return;
+        } catch (err) { console.error('Erro ao validar etapa do Boss Fight:', err); }
+      }
 
       // --- Modo Bug Hunter: validação de correção de bugs ---
       if (isBugHunterMode()) {
@@ -1419,10 +1692,10 @@ function initBasicEvents() {
               persistState();
               document.dispatchEvent(new CustomEvent('interrogation-start'));
             } else if (state.interrogation.status === 'won') {
-              setTimeout(() => showActiveCaseConclusion(activeCase), 500);
+              offerOrConclude(activeCase);
             }
           } else {
-            setTimeout(() => showActiveCaseConclusion(activeCase), 500);
+            offerOrConclude(activeCase);
           }
         }
       }
@@ -1441,6 +1714,9 @@ function initBasicEvents() {
       if (!state.currentLevel) return;
       if (state.hintRequestInFlight) return;
       const activeCase = getActiveCase();
+
+      // --- Boss Fight: sem dicas. O botão é bloqueado na UI e o fluxo é abortado aqui. ---
+      if (isBossFightMode()) return;
 
       // --- Modo Bug Hunter: revelação progressiva dos bugs (sem IA) ---
       if (isBugHunterMode()) {
@@ -1603,6 +1879,20 @@ function initBasicEvents() {
   if (btnNext) {
     btnNext.addEventListener('click', () => {
       const activeCase = getActiveCase();
+      if (isBossFightMode()) {
+        const battle = getActiveBossBattle();
+        if (!battle) return;
+        const bossState = normalizeBossState(state.bossByCase[state.currentCase] || {});
+        const activeStep = getActiveStep(battle, bossState);
+        if (!activeStep) return;
+        // Marca o step atual como concluído manualmente? Não: a conclusão ocorre
+        // somente via validação. O btn-next aqui apenas avança para o step ativo
+        // quando a validação o liberou (hidden/show controlado por loadBossFight).
+        loadMission(activeStep.id);
+        const btnNextEl = document.getElementById('btn-next');
+        if (btnNextEl) btnNextEl.hidden = true;
+        return;
+      }
       if (isBugHunterMode()) {
         const challenge = getActiveBugChallenge();
         if (!challenge) return;
@@ -1827,13 +2117,13 @@ function initBasicEvents() {
     if (result.completed && !state.completedAt) state.completedAt = new Date().toISOString();
     persistState();
 
-    if (result.accepted) {
+      if (result.accepted) {
       if (result.completed) {
         showStartInterrogationButton(false);
         setInterrogationFeedback(result.message || 'Evidência aceita.', true);
         setTimeout(() => {
           hideInterrogationModal();
-          showActiveCaseConclusion(activeCase);
+          offerOrConclude(activeCase);
         }, 1500);
       } else {
         const unlockedEvidences = getUnlockedEvents(activeCase.GAMEPLAY.timeline, state.completedLevels);
@@ -1886,10 +2176,16 @@ function dom_interrogationModal_visible() {
   return modal && !modal.hidden;
 }
 
-if (typeof globalThis !== 'undefined' && globalThis.__SQL_DETECTIVE_TEST__) {
+  if (typeof globalThis !== 'undefined' && globalThis.__SQL_DETECTIVE_TEST__) {
   globalThis.__SQLDetectiveApp = {
     persistState,
     loadMission,
+    loadBossFight,
+    startBossTimer,
+    offerOrConclude,
+    isBossFightMode,
+    getActiveBossBattle,
+    getBossTimerHandle: () => bossTimerHandle,
     selectCase,
     restoreProgress,
     startGame,

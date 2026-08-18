@@ -180,9 +180,14 @@ function serveStaticFile(res, filePath) {
     const ext = path.extname(filePath).toLowerCase();
     const mime = MIME_TYPES[ext] || 'application/octet-stream';
 
+    const cacheHeaders = ['.js', '.mjs', '.css', '.wasm'].includes(ext)
+      ? { 'Cache-Control': 'no-store' }
+      : {};
+
     res.writeHead(200, {
       'Content-Type': mime,
       'Content-Length': data.length,
+      ...cacheHeaders,
     });
     res.end(data);
   });

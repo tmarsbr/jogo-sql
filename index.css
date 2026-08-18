@@ -2790,3 +2790,34 @@ button {
     transition-duration: 0.01ms !important;
   }
 }
+
+/* ══ BOSS FIGHT ══ */
+.boss-tag {
+  border-color: rgba(168, 85, 247, 0.6);
+  color: #C084FC;
+  background: rgba(168, 85, 247, 0.12);
+  font-weight: 700;
+}
+.rail-step {
+  width: 100%;
+  text-align: left;
+  font-size: 9.5px;
+  padding: 7px 10px;
+  border: 1px solid rgba(148, 163, 184, 0.25);
+  background: rgba(30, 41, 59, 0.5);
+}
+.rail-step.active {
+  border-color: rgba(34, 197, 94, 0.6);
+  background: rgba(34, 197, 94, 0.08);
+}
+.rail-step.done {
+  border-color: rgba(168, 85, 247, 0.45);
+  background: rgba(168, 85, 247, 0.08);
+  text-decoration: line-through;
+  opacity: 0.75;
+}
+.feedback-warning {
+  border-color: rgba(250, 204, 21, 0.35);
+  background: rgba(250, 204, 21, 0.07);
+  color: #FCD34D;
+}
