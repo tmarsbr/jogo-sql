@@ -144,11 +144,11 @@ const scoreErrors = computeBossScore(battle006, 240000, 5);
 assert(scoreErrors === 1250, `score com 5 erros e 4min = 1500 - 250 = 1250, obtido ${scoreErrors}`);
 
 const scoreCappedErrors = computeBossScore(battle006, 240000, 50);
-assert(scoreCappedErrors === 700, `score com 50 erros e 4min = base 1000 + bônus 500 - teto de penalidade 800 = 700, obtido ${scoreCappedErrors}`);
+assert(scoreCappedErrors === 900, `score com 50 erros e 4min = base 1000 + bônus 500 - teto de penalidade 600 = 900, obtido ${scoreCappedErrors}`);
 
-// 0 bônus − teto de penalidade 800 = base 1000 − 800 = 200 (teto limita, nunca negativo).
+// 0 bônus − teto de penalidade 600 = base 1000 − 600 = 400 (teto limita, nunca negativo).
 const scoreNeverNegative = computeBossScore(battle006, 1201000, 200);
-assert(scoreNeverNegative === 200, `score com erros no teto e sem bônus = base 1000 − 800 = 200, obtido ${scoreNeverNegative}`);
+assert(scoreNeverNegative === 400, `score com erros no teto e sem bônus = base 1000 − 600 = 400, obtido ${scoreNeverNegative}`);
 
 console.log('\n=== boss-fight.js — estrelas por precisão ===');
 assert(computeBossStars(0) === 3, '0 erros de SQL = 3 estrelas');
