@@ -2,9 +2,9 @@
  * levels.js — Missões do Projeto 13: Finanças e Cartões de Crédito
  */
 
-const mission = (id, title, concept, objective, tables, expectedColumns, referenceQuery, requiredConcepts, hints, evidence, explanation, courseRefs) => ({
+const mission = (id, title, concept, objective, tables, expectedColumns, referenceQuery, requiredConcepts, hints, evidence, explanation, courseRefs, requirements = []) => ({
   id, title, concept, briefing: `Análise de Transações Financeiras e Cartões de Crédito. ${objective}`,
-  objective, tables, expectedColumns, referenceQuery, requiredConcepts, hints, evidence, explanation, courseRefs,
+  objective, tables, expectedColumns, referenceQuery, requiredConcepts, hints, evidence, explanation, courseRefs, requirements,
 });
 
 export const CASE_INTRO = {
@@ -181,7 +181,12 @@ export const LEVELS = [
       ['Crie a view com CREATE VIEW vw_perfil_financeiro_clientes AS SELECT ...', 'Junte clientes_banco, tipos_conta, cartoes e faturas_transacoes.', 'Use COALESCE(SUM(ft.valor_centavos), 0) AS total_gasto_centavos.'],
       'A view de consolidação financeira está homologada para auditoria do Banco Central.',
       'Views corporativas unificam o histórico transacional com as características cadastrais.',
-      ['views', 'joins-inner-left', 'aggregation-groupby']
+      ['views', 'joins-inner-left', 'aggregation-groupby', 'null-handling'],
+      [
+        'Todo cliente com cartão aparece na view, mesmo sem nenhuma transação lançada.',
+        'Cliente sem transações deve exibir 0 em total_gasto_centavos — nunca NULL.',
+        'Mantenha limite_centavos e total_gasto_centavos em centavos (números inteiros).',
+      ]
     ),
     executionMode: 'create_view',
     viewName: 'vw_perfil_financeiro_clientes',

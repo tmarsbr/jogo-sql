@@ -1,5 +1,5 @@
 /**
- * ai-hints.js — Módulo puro do browser para dicas com IA via Ollama.
+ * ai-hints.js — Módulo puro do browser para dicas com IA via Gemini.
  *
  * buildHintContext: monta o contexto permitido a partir da missão e tentativa.
  * sanitizeModelHint: valida/limpa a resposta do modelo, rejeitando HTML e queries completas.
@@ -138,14 +138,14 @@ export function sanitizeModelHint(hint) {
  * @param {object} body contexto serializado (saída de buildHintContext)
  * @param {object} [options]
  * @param {string} [options.endpoint] URL do endpoint (default '/api/ai-hint')
- * @param {number} [options.timeoutMs] timeout em ms (default 25000)
+ * @param {number} [options.timeoutMs] timeout em ms (default 70000)
  * @param {AbortSignal} [options.signal] signal externo para abortar
  * @param {typeof fetch} [options.fetchImpl] injeção para testes
  * @returns {Promise<{ok: boolean, hint?: string, source?: string, error?: {code: string, message: string}}>}
  */
 export async function requestAiHint(body, options = {}) {
   const endpoint = options.endpoint || '/api/ai-hint';
-  const timeoutMs = options.timeoutMs || 25000;
+  const timeoutMs = options.timeoutMs || 70000;
   const fetchImpl = options.fetchImpl || ((typeof fetch !== 'undefined') ? fetch : null);
 
   if (!fetchImpl) {
@@ -199,6 +199,6 @@ export async function requestAiHint(body, options = {}) {
   return {
     ok: true,
     hint: data.hint || '',
-    source: data.source || 'ollama',
+    source: data.source || 'gemini',
   };
 }

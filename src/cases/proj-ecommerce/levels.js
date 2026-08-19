@@ -2,9 +2,9 @@
  * levels.js — Missões do Projeto 05: E-Commerce
  */
 
-const mission = (id, title, concept, objective, tables, expectedColumns, referenceQuery, requiredConcepts, hints, evidence, explanation, courseRefs) => ({
+const mission = (id, title, concept, objective, tables, expectedColumns, referenceQuery, requiredConcepts, hints, evidence, explanation, courseRefs, requirements = []) => ({
   id, title, concept, briefing: `Análise de Dados de E-Commerce. ${objective}`,
-  objective, tables, expectedColumns, referenceQuery, requiredConcepts, hints, evidence, explanation, courseRefs,
+  objective, tables, expectedColumns, referenceQuery, requiredConcepts, hints, evidence, explanation, courseRefs, requirements,
 });
 
 export const CASE_INTRO = {

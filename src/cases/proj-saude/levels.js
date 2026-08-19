@@ -2,9 +2,9 @@
  * levels.js — Missões do Projeto 12: Gestão em Saúde
  */
 
-const mission = (id, title, concept, objective, tables, expectedColumns, referenceQuery, requiredConcepts, hints, evidence, explanation, courseRefs) => ({
+const mission = (id, title, concept, objective, tables, expectedColumns, referenceQuery, requiredConcepts, hints, evidence, explanation, courseRefs, requirements = []) => ({
   id, title, concept, briefing: `Analytics em Saúde e Gestão Ambulatorial. ${objective}`,
-  objective, tables, expectedColumns, referenceQuery, requiredConcepts, hints, evidence, explanation, courseRefs,
+  objective, tables, expectedColumns, referenceQuery, requiredConcepts, hints, evidence, explanation, courseRefs, requirements,
 });
 
 export const CASE_INTRO = {

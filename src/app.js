@@ -18,9 +18,11 @@ import { validateClientRealAnalysis, validateClientRealReport,
          validateClarification, computeEngagementScore, computeEngagementStars,
          createEngagementState } from './cases/client-real-validator.js';
 
-import { validateSchemaChallenge, SB_FEEDBACK_CORRECT, SB_FEEDBACK_BLOCKED,
+import { validateSchemaChallenge, SB_FEEDBACK_CORRECT, SB_FEEDBACK_INCOMPLETE, SB_FEEDBACK_BLOCKED,
+         SB_FEEDBACK_UNEXPECTED_TABLE,
          executeMultipleStatements, findForbiddenKeyword, mergeSchemaStatements,
-         getCreatedTableNames, splitStatements, getCreatedTableName } from './schema-builder-validator.js';
+         getCreatedTableNames, splitStatements, splitSchemaModelStatements, stripNoise,
+         getCreatedTableName, getDroppedTableName } from './schema-builder-validator.js';
 import { buildReviewContext, requestAiSchemaReview } from './ai-schema-review.js';
 import { calculateStars, calculateTotalScore, calculateTotalStars, calculateMaxStars, updateLevelProgress } from './scoring.js';
 import { saveState, loadState } from './storage.js';
@@ -65,6 +67,7 @@ import {
   showInterrogationModal,
   hideInterrogationModal,
   setInterrogationFeedback,
+  showInterrogationAdvanceButton,
   showStartInterrogationButton,
   escapeHtml,
   renderGraph,
@@ -84,6 +87,9 @@ import {
   renderSchemaProgress,
   renderSchemaRail,
   setAiReviewButtonLoading,
+  renderHintChat,
+  setHintChatVisible,
+  setHintChatSending,
   configureSidebarTabs,
   updateLessonTabBadge,
   setLesson,
@@ -96,6 +102,7 @@ import { renderLessonHtml } from './lesson.js';
 import { renderERDiagram } from './er-diagram.js';
 import { getCourseContentById } from './course-content.js';
 import { buildHintContext, requestAiHint } from './ai-hints.js';
+import { buildChatContext, requestAiChat } from './ai-chat.js';
 import { getUnlockedEvents, normalizeOrder, moveEvent, checkTimelineBonus } from './timeline.js';
 import { showCertificateModal } from './certificate.js';
 import {
@@ -106,15 +113,32 @@ import {
 } from './boss-fight.js';
 import {
   renderBossBriefing, renderBossRail, updateBossTimerReadout,
-  renderBossHintsBanner, showBossInvitation, showBossVictoryModal,
+  renderBossHintsBanner, renderBossFeedback, showBossInvitation, showBossVictoryModal,
   hideBossVictoryModal,
 } from './ui.js';
 import { deriveSuspicion } from './suspect-meter.js';
 import { startInterrogation, presentEvidence } from './interrogation.js';
 import { initSfx, setSfxEnabled, isSfxEnabled, playTypingSound, playAlertSound, playSuccessSound } from './sfx.js';
+import { initPanelResizers } from './panel-resizer.js';
 
 function getActiveCase() {
   return getCaseById(state.currentCase) || getCaseById('case001');
+}
+
+function refreshDatabaseSchemaUi() {
+  const schema = getSchemaText();
+  setSchema(schema);
+  const sidebarDiagram = document.getElementById('sidebar-er-diagram-content');
+  if (sidebarDiagram) {
+    try { renderERDiagram(sidebarDiagram); } catch { /* banco ainda pode estar vazio */ }
+  }
+  return schema;
+}
+
+function areAllCaseLevelsCompleted(caseDefinition, completedLevels = state.completedLevels) {
+  if (!Array.isArray(caseDefinition?.LEVELS) || !Array.isArray(completedLevels)) return false;
+  const completed = new Set(completedLevels);
+  return caseDefinition.LEVELS.every(level => completed.has(level.id));
 }
 
 /**
@@ -146,11 +170,48 @@ function isSchemaBuilderMode() {
   return getActiveCase().type === 'schema-builder';
 }
 
+function getSchemaTablePolicy(challenge) {
+  if (challenge?.allowExtraTables !== false) return new Set();
+  return new Set(
+    (challenge?.unexpectedTables || []).map(name => String(name).trim().toLowerCase())
+  );
+}
+
+function isRejectedSchemaTable(tableName, policy) {
+  const normalizedName = String(tableName || '').trim().toLowerCase();
+  if (!normalizedName) return false;
+  return policy.has(normalizedName);
+}
+
+function getRejectedSchemaTables(statements, challenge) {
+  const policy = getSchemaTablePolicy(challenge);
+  return [...new Set((statements || [])
+    .map(statement => getCreatedTableName(statement))
+    .filter(name => name && isRejectedSchemaTable(name, policy)))];
+}
+
+function keepAllowedSchemaTables(statements, challenge) {
+  const policy = getSchemaTablePolicy(challenge);
+  return (statements || []).filter((statement) => {
+    const tableName = getCreatedTableName(statement);
+    return tableName && !isRejectedSchemaTable(tableName, policy);
+  });
+}
+
 /** Obtém o DDL acumulado do desafio Construtor de Schema ativo. */
 function getActiveSchemaDdl() {
   const challengeId = state.currentLevel;
   const saved = state.schemaBuilderDdl[challengeId];
-  return Array.isArray(saved) ? saved.join('\n') : '';
+  if (!Array.isArray(saved)) return '';
+  const normalized = keepAllowedSchemaTables(
+    mergeSchemaStatements(saved, ''),
+    getActiveSchemaChallenge()
+  );
+  state.schemaBuilderDdl[challengeId] = normalized;
+  const migrated = saved.length !== normalized.length
+    || saved.some((statement, index) => statement !== normalized[index]);
+  if (migrated) persistState();
+  return normalized.join('\n');
 }
 
 
@@ -167,7 +228,9 @@ function isClientRealMode() {
 }
 /** Verifica se o cenário ativo é um step do Boss Fight. */
 function isBossFightMode() {
-  return isBossStepId(state.currentLevel) && Boolean(getBattle(state.currentCase));
+  return isBossStepId(state.currentLevel)
+    && Boolean(getBattle(state.currentCase))
+    && normalizeBossState(state.bossByCase[state.currentCase] || {}).status === 'active';
 }
 
 /** Obtém a batalha do boss do caso ativo. */
@@ -208,19 +271,22 @@ function startBossTimer() {
  * @param {object} activeCase
  */
 function offerOrConclude(activeCase) {
+  const caseId = activeCase?.id;
+  if (!caseId || state.currentCase !== caseId) return;
   if (bossTimerHandle) {
     clearInterval(bossTimerHandle);
     bossTimerHandle = null;
   }
-  const battle = getBattle(state.currentCase);
-  const bossState = normalizeBossState(state.bossByCase[state.currentCase] || {});
+  const battle = getBattle(caseId);
+  const bossState = normalizeBossState(state.bossByCase[caseId] || {});
   const interrogation = state.interrogation || {};
   if (battle && isBossAvailable(battle, bossState, interrogation)) {
     showBossInvitation(
       battle,
       () => {
+        if (state.currentCase !== caseId) return;
         const startResult = startBattle(battle, bossState);
-        state.bossByCase[state.currentCase] = startResult.state;
+        state.bossByCase[caseId] = startResult.state;
         persistState();
         const firstStep = battle.steps.find(s => !bossState.completedSteps.includes(s.id));
         if (firstStep) {
@@ -231,7 +297,7 @@ function offerOrConclude(activeCase) {
         startBossTimer();
       },
       () => {
-        showActiveCaseConclusion(activeCase);
+        if (state.currentCase === caseId) showActiveCaseConclusion(activeCase);
       }
     );
   } else {
@@ -250,10 +316,14 @@ function loadBossFight(stepId) {
   const rawState = state.bossByCase[state.currentCase] || {};
   const bossState = normalizeBossState(rawState);
   if (bossState.status !== 'active') return;
-  const step = battle.steps.find(s => s.id === stepId);
-  if (!step) return;
+  const requestedStep = battle.steps.find(s => s.id === stepId);
+  const step = getActiveStep(battle, bossState);
+  // Boss Fights são sequenciais. Um save pode apontar para a etapa que acabou
+  // de ser concluída enquanto o jogador ainda não clicou em "Próximo".
+  // Nessa situação, retome sempre a primeira etapa realmente pendente.
+  if (!requestedStep || !step) return;
 
-  state.currentLevel = stepId;
+  state.currentLevel = step.id;
   state.hintsRevealed = [];
   state.queryExecuted = false;
   state.lastValidationFeedback = null;
@@ -262,7 +332,7 @@ function loadBossFight(stepId) {
   document.dispatchEvent(new CustomEvent('mission-changed'));
 
   const elapsed = bossElapsedMs(battle, bossState);
-  const remaining = battle.steps.length - bossState.completedSteps.length - (bossState.completedSteps.includes(stepId) ? 0 : 1);
+  const remaining = battle.steps.length - bossState.completedSteps.length - (bossState.completedSteps.includes(step.id) ? 0 : 1);
   renderBossBriefing(battle, step, elapsed, Math.max(0, remaining));
   renderBossRail(battle, step, bossState.completedSteps);
   renderBossHintsBanner();
@@ -272,29 +342,17 @@ function loadBossFight(stepId) {
   clearEditor();
   enableEditorButtons(true);
 
-  const activeStep = getActiveStep(battle, bossState);
   const btnNext = document.getElementById('btn-next');
-  if (btnNext) btnNext.hidden = !activeStep || activeStep.id !== stepId;
+  if (btnNext) {
+    btnNext.textContent = 'PRÓXIMA ETAPA →';
+    btnNext.hidden = true;
+  }
 
   showTabs();
   configureSidebarTabs({ graph: false, timeline: false, suspects: false, lesson: false });
 
-  // Esconde os painéis laterais de gameplay: o boss usa apenas o editor.
-  const sidebarPanes = [
-    'sidebar-pane-lesson', 'sidebar-pane-graph', 'sidebar-pane-timeline',
-    'sidebar-pane-suspects', 'sidebar-pane-hints',
-  ];
-  for (const paneId of sidebarPanes) {
-    const pane = document.getElementById(paneId);
-    if (pane) pane.hidden = true;
-  }
-  const sidebarTabsNav = document.getElementById('sidebar-tabs-nav');
-  if (sidebarTabsNav) sidebarTabsNav.hidden = true;
-  const tabsNav = document.getElementById('tabs-nav');
-  if (tabsNav) tabsNav.hidden = true;
-
   // O banco do boss já contém as views das missões concluídas (restaurado no startGame).
-  setSchema(getSchemaText());
+  refreshDatabaseSchemaUi();
   renderFromState();
 
   startBossTimer();
@@ -307,7 +365,6 @@ function getLockedMissionIds(caseDefinition, completedLevels = state.completedLe
   if (firstIncompleteIndex < 0) return [];
   return caseDefinition.LEVELS
     .slice(firstIncompleteIndex + 1)
-    .filter(level => !completed.has(level.id))
     .map(level => level.id);
 }
 
@@ -347,6 +404,10 @@ function configureIntro(caseDefinition) {
   const briefingTitle = document.getElementById('briefing-panel-title');
   const editorTitle = document.getElementById('editor-panel-title');
   const briefingTab = document.getElementById('briefing-tab-label');
+  const sqlEditor = document.getElementById('sql-editor');
+  const editorFileLabel = document.querySelector('#panel-editor .sql-editor-topbar-label');
+  const btnRun = document.getElementById('btn-run');
+  const btnClear = document.getElementById('btn-clear');
   const erDescription = document.getElementById('er-description');
   const erModalTitle = document.getElementById('er-modal-title');
 
@@ -374,6 +435,42 @@ function configureIntro(caseDefinition) {
   if (briefingTitle) briefingTitle.textContent = isProject ? 'PROJETO' : 'INQUÉRITO';
   if (editorTitle) editorTitle.textContent = isProject ? 'ANÁLISE SQL' : 'CONSOLE FORENSE';
   if (briefingTab) briefingTab.textContent = isProject ? 'Projeto' : 'Cenário';
+  const btnToggleBriefing = document.getElementById('btn-toggle-briefing');
+  if (btnToggleBriefing) {
+    btnToggleBriefing.textContent = isProject ? '📖 PROJETO' : '📖 INQUÉRITO';
+    btnToggleBriefing.title = isProject ? 'Alternar painel do projeto (Ctrl+B)' : 'Alternar painel de inquérito (Ctrl+B)';
+  }
+
+  const editorContext = {
+    'schema-builder': {
+      button: 'VALIDAR MODELO',
+      clearButton: 'LIMPAR RASCUNHO',
+      file: 'RASCUNHO.SQL',
+      placeholder: 'Escreva um CREATE TABLE por execução…',
+    },
+    'bug-hunter': {
+      button: 'VALIDAR CORREÇÃO',
+      clearButton: 'LIMPAR',
+      file: 'CORRECAO.SQL',
+      placeholder: 'Corrija a instrução SQL e execute…',
+    },
+    'client-real': {
+      button: 'EXECUTAR ANÁLISE',
+      clearButton: 'LIMPAR',
+      file: 'ANALISE.SQL',
+      placeholder: 'Escreva a consulta que responde ao cliente…',
+    },
+  }[caseDefinition.type] || {
+    button: 'EXECUTAR QUERY',
+    clearButton: 'LIMPAR',
+    file: 'QUERY.SQL',
+    placeholder: 'Escreva sua query SELECT ou WITH aqui…',
+  };
+  if (btnRun) btnRun.textContent = editorContext.button;
+  if (btnClear) btnClear.textContent = editorContext.clearButton;
+  if (editorFileLabel) editorFileLabel.textContent = editorContext.file;
+  if (sqlEditor) sqlEditor.placeholder = editorContext.placeholder;
+
   if (erDescription) {
     erDescription.textContent = `Tabelas, colunas e relações do banco de dados ${isProject ? 'do projeto' : 'da investigação'}.`;
   }
@@ -582,15 +679,14 @@ async function selectCase(caseId) {
   activateCaseProgress(caseId);
   configureIntro(getActiveCase());
 
-  // Botões de assistência exclusivos do modo Construtor de Schema.
+  // A revisão com IA é exclusiva do modo Construtor de Schema.
+  // O botão de dicas fica na aba DICAS e é compartilhado pelos modos.
   const buttonAiReview = document.getElementById('btn-ai-review');
   const buttonHint = document.getElementById('btn-hint');
   const willUseSchemaButtons = getActiveCase()?.type === 'schema-builder';
   if (buttonAiReview) buttonAiReview.hidden = !willUseSchemaButtons;
   if (buttonHint) {
-    if (!willUseSchemaButtons && getActiveCase()?.type !== 'bug-hunter') {
-      buttonHint.hidden = true;
-    }
+    buttonHint.hidden = false;
     if (buttonHint.textContent.startsWith('REVELAR DICA')) {
       buttonHint.textContent = 'SOLICITAR DICA (3 RESTANTES)';
     }
@@ -701,6 +797,47 @@ function restoreCompletedMissionViews(caseDefinition, db, completedLevels = stat
 }
 
 /**
+ * Reaplica, após recriar o banco em memória, os efeitos persistentes de etapas
+ * já concluídas do Boss Fight (UPDATE/INSERT/VIEW/INDEX). Etapas SELECT não
+ * alteram o banco e são ignoradas.
+ */
+function restoreCompletedBossSteps(caseId, db, savedBossState = state.bossByCase[caseId]) {
+  const battle = getBattle(caseId);
+  if (!battle || !db) return [];
+
+  const completed = new Set(normalizeBossState(savedBossState).completedSteps);
+  const restored = [];
+  for (const step of battle.steps || []) {
+    const isView = step.executionMode === 'create_view';
+    const isMutation = step.executionMode === 'ddl';
+    if ((!isView && !isMutation) || !completed.has(step.id) || !step.referenceQuery) continue;
+
+    if (isView && step.viewName && typeof db.exec === 'function') {
+      const safeViewName = String(step.viewName).replace(/'/g, "''");
+      const existing = db.exec(
+        `SELECT name FROM sqlite_master WHERE type = 'view' AND lower(name) = lower('${safeViewName}');`
+      );
+      if (existing.length > 0 && existing[0].values.length > 0) {
+        restored.push(step.id);
+        continue;
+      }
+    }
+
+    const result = executeQuery(step.referenceQuery, db, {
+      allowCreateView: isView,
+      allowDml: isMutation,
+      allowDdl: isMutation,
+    });
+    if (result.type === 'empty') {
+      restored.push(step.id);
+    } else {
+      console.warn(`Não foi possível restaurar a etapa ${step.id} do Boss Fight: ${result.message}`);
+    }
+  }
+  return restored;
+}
+
+/**
  * Carrega uma missão no estado e na UI.
  * @param {number} levelId
  */
@@ -748,7 +885,10 @@ function loadMission(levelId) {
   state.activeHintRequestToken = null;
   document.dispatchEvent(new CustomEvent('mission-changed'));
   const btnNext = document.getElementById('btn-next');
-  if (btnNext) btnNext.hidden = true;
+  if (btnNext) {
+    btnNext.textContent = 'PRÓXIMA MISSÃO →';
+    btnNext.hidden = true;
+  }
 
   const courseItems = getCourseItemsForLevel(level);
 
@@ -768,8 +908,9 @@ function loadMission(levelId) {
   configureSidebarTabs({
     graph: Boolean(activeCase.GAMEPLAY?.graph),
     timeline: Boolean(activeCase.GAMEPLAY?.timeline),
-    suspects: Boolean(activeCase.GAMEPLAY?.suspects),
+    suspects: Boolean(activeCase.GAMEPLAY?.suspects || activeCase.GAMEPLAY?.finalChallenge),
     lesson: courseItems.length > 0,
+    suspectsLabel: activeCase.GAMEPLAY?.suspects ? 'SUSPEITOS' : 'CONFRONTO',
   });
 
   const primaryItem = courseItems[0];
@@ -806,7 +947,7 @@ function loadMission(levelId) {
 
   // Interrogatório
   if (activeCase.GAMEPLAY?.finalChallenge) {
-    const allDone = state.completedLevels.length >= activeCase.getTotalLevels();
+    const allDone = areAllCaseLevelsCompleted(activeCase);
     const interrogationPending = state.interrogation.status !== 'won';
     showStartInterrogationButton(allDone && interrogationPending);
   } else {
@@ -859,10 +1000,40 @@ function loadSchemaChallenge(challengeId) {
   state.activeHintRequestToken = null;
   document.dispatchEvent(new CustomEvent('mission-changed'));
   const btnNext = document.getElementById('btn-next');
-  if (btnNext) btnNext.hidden = true;
+  if (btnNext) {
+    btnNext.textContent = 'PRÓXIMO MODELO →';
+    btnNext.hidden = true;
+  }
+
+  let inheritedModel = false;
+  if (
+    challenge.inheritsFrom !== undefined
+    && !Array.isArray(state.schemaBuilderDdl[challenge.id])
+    && Array.isArray(state.schemaBuilderDdl[challenge.inheritsFrom])
+  ) {
+    state.schemaBuilderDdl[challenge.id] = mergeSchemaStatements(
+      state.schemaBuilderDdl[challenge.inheritsFrom],
+      ''
+    );
+    inheritedModel = state.schemaBuilderDdl[challenge.id].length > 0;
+  }
 
   const ddlRestored = getActiveSchemaDdl();
-  setEditorValue(ddlRestored);
+  if (inheritedModel) persistState();
+  const challengeCompleted = state.completedLevels.includes(challenge.id);
+  setEditorValue('');
+  enableEditorButtons(!challengeCompleted);
+  const editorHelp = document.getElementById('editor-help');
+  if (editorHelp) {
+    editorHelp.textContent = challengeCompleted
+      ? 'Modelo já validado. Selecione o próximo desafio para continuar.'
+      : 'Use CREATE TABLE para criar ou corrigir e DROP TABLE para remover uma tabela do modelo.';
+  }
+  setResults(challengeCompleted
+    ? '<p class="placeholder-text">Modelo validado. Avance para o próximo desafio.</p>'
+    : ddlRestored
+      ? '<p class="placeholder-text">Modelo restaurado. Continue criando ou corrigindo as tabelas e valide novamente.</p>'
+      : '<p class="placeholder-text">Comece criando uma tabela com CREATE TABLE e valide o modelo.</p>');
 
   renderSchemaChallenge(challenge, ddlRestored, state.completedLevels, getCreatedTableNames(ddlRestored));
   renderSchemaHints(challenge, state.hintsRevealed);
@@ -878,6 +1049,7 @@ function loadSchemaChallenge(challengeId) {
     timeline: false,
     suspects: false,
     lesson: false,
+    diagram: true,
   });
 
   const schemaButtonHint = document.getElementById('btn-hint');
@@ -893,13 +1065,17 @@ function loadSchemaChallenge(challengeId) {
     });
   } else {
     initDB('schema-builder', { force: true }).then(() => {
-      enableHintButton(true);
+      enableHintButton(!challengeCompleted);
+      const sidebarErContent = document.getElementById('sidebar-er-diagram-content');
+      if (sidebarErContent) {
+        try { renderERDiagram(sidebarErContent); } catch { /* banco vazio */ }
+      }
     }).catch((err) => {
       console.error('Erro ao iniciar banco do desafio:', err);
       setDbStatus('error', 'Banco: erro');
     });
   }
-  if (ddlRestored) enableHintButton(true);
+  if (ddlRestored) enableHintButton(!challengeCompleted);
 }
 
 /**
@@ -911,10 +1087,15 @@ function loadSchemaChallenge(challengeId) {
 async function rebuildSchemaChallengeDb(ddl) {
   await initDB('schema-builder', { force: true });
   const db = getDB();
-  db.run(ddl);
-  setSchema(getSchemaText());
+  const { errors } = executeMultipleStatements(ddl, db);
+  if (errors.length > 0) throw new Error(errors[0].message);
+  refreshDatabaseSchemaUi();
   setDbStatus('ok', `Banco: ${state.completedLevels.includes(state.currentLevel) ? 'concluído' : 'em construção'}`);
   try { renderSchemaDetailed(db); } catch { /* banco vazio não gera diagrama */ }
+  const sidebarErContent = document.getElementById('sidebar-er-diagram-content');
+  if (sidebarErContent) {
+    try { renderERDiagram(sidebarErContent); } catch { /* banco vazio */ }
+  }
 }
 
 
@@ -959,7 +1140,10 @@ function loadClientRealChallenge(engagementId) {
   state.activeHintRequestToken = null;
   document.dispatchEvent(new CustomEvent('mission-changed'));
   const btnNext = document.getElementById('btn-next');
-  if (btnNext) btnNext.hidden = true;
+  if (btnNext) {
+    btnNext.textContent = 'PRÓXIMA CONSULTORIA →';
+    btnNext.hidden = true;
+  }
   const completedLevels = [...state.completedLevels];
   setBriefing(renderClientRealBriefing(engagement, engagementState, completedLevels));
   renderClientRealProgress(engagements, engagement.id, completedLevels);
@@ -1017,7 +1201,10 @@ function loadBugChallenge(challengeId) {
   state.activeHintRequestToken = null;
   document.dispatchEvent(new CustomEvent('mission-changed'));
   const btnNext = document.getElementById('btn-next');
-  if (btnNext) btnNext.hidden = true;
+  if (btnNext) {
+    btnNext.textContent = 'PRÓXIMO RELATÓRIO →';
+    btnNext.hidden = true;
+  }
 
   renderBugChallenge(challenge);
   renderBugHints(challenge, state.hintsRevealed);
@@ -1141,6 +1328,7 @@ async function init() {
     initTabs();
     initSidebarTabs();
     initLobbyTabs();
+    initPanelResizers();
 
     restoreProgress();
     configureIntro(getActiveCase());
@@ -1306,14 +1494,14 @@ async function startGame(caseId = state.currentCase) {
     await initDB(state.currentCase, { force: true });
 
     const db = getDB();
-    restoreCompletedMissionViews(getActiveCase(), db);
+    const activeCase = getActiveCase();
+    restoreCompletedMissionViews(activeCase, db);
+    restoreCompletedBossSteps(activeCase.id, db);
 
-    const schema = getSchemaText();
-    setSchema(schema);
+    refreshDatabaseSchemaUi();
     enableEditorButtons(true);
     setDbStatus('ok', '● BANCO PRONTO');
 
-    const activeCase = getActiveCase();
     const totalLevels = activeCase.getTotalLevels();
     let levelToLoad = state.currentLevel;
 
@@ -1359,7 +1547,7 @@ async function startGame(caseId = state.currentCase) {
       } else if (bossBattle && bossState.status === 'active') {
         // Caso salvo em missão normal, mas com batalha ativa: se todas as missões
         // já foram concluídas, retoma a batalha do boss; senão mantém a missão normal.
-        const allDone = state.completedLevels.length >= totalLevels;
+        const allDone = areAllCaseLevelsCompleted(activeCase);
         if (allDone) {
           levelToLoad = getActiveStep(bossBattle, bossState)?.id || null;
         } else {
@@ -1390,12 +1578,22 @@ async function startGame(caseId = state.currentCase) {
     }
     loadMission(levelToLoad);
 
+    const restoredBattle = getBattle(activeCase.id);
+    const restoredBossState = normalizeBossState(state.bossByCase[activeCase.id] || {});
+    const shouldResumeFinalFlow = Boolean(
+      activeCase.GAMEPLAY?.finalChallenge
+      && state.interrogation.status === 'won'
+      && areAllCaseLevelsCompleted(activeCase)
+      && (!restoredBattle || restoredBossState.status !== 'active')
+    );
+    if (shouldResumeFinalFlow) offerOrConclude(activeCase);
+
     hideLoading();
     renderFromState();
 
   } catch (err) {
     console.error('Erro ao iniciar jogo:', err);
-    showGlobalError('Falha ao carregar o banco de dados. Verifique o console para detalhes.');
+    showGlobalError('Falha ao abrir o cenÃ¡rio. Verifique o console para detalhes.');
     hideLoading();
   }
 }
@@ -1593,6 +1791,151 @@ async function handleClientRealReport(report) {
 
 
 
+/* --- Chat de dúvidas com a IA --- */
+
+/**
+ * Monta o contexto do chat conforme o modo ativo (missão, modelagem ou bug hunter).
+ * @param {string} question pergunta escrita pelo jogador
+ * @returns {object|null} contexto pronto para envio, ou null se não houver desafio ativo
+ */
+function buildActiveChatContext(question) {
+  const hintsRevealed = state.hintsRevealed;
+  const history = state.hintChat;
+
+  if (isSchemaBuilderMode()) {
+    const challenge = getActiveSchemaChallenge();
+    if (!challenge) return null;
+    const ddl = getActiveSchemaDdl();
+    const currentSql = getEditorValue().trim();
+    return buildChatContext({
+      mode: 'schema',
+      mission: {
+        title: challenge.title || '',
+        concept: challenge.concept || '',
+        objective: challenge.requirements || '',
+        tables: Array.isArray(challenge.expectedTables) ? challenge.expectedTables : [],
+      },
+      studentSql: currentSql ? (ddl ? `${ddl}\n${currentSql}` : currentSql) : ddl,
+      hintsRevealed,
+      history,
+      question,
+    });
+  }
+
+  if (isBugHunterMode()) {
+    const challenge = getActiveBugChallenge();
+    if (!challenge) return null;
+    return buildChatContext({
+      mode: 'bug',
+      mission: {
+        title: challenge.title || '',
+        concept: challenge.concept || '',
+        objective: challenge.objective || '',
+        tables: Array.isArray(challenge.tables) ? challenge.tables : [],
+        expectedColumns: Array.isArray(challenge.expectedColumns) ? challenge.expectedColumns : [],
+      },
+      schema: getSchemaText(),
+      studentSql: getEditorValue(),
+      hintsRevealed,
+      history,
+      question,
+    });
+  }
+
+  const level = getActiveCase().getLevel(state.currentLevel);
+  if (!level) return null;
+  return buildChatContext({
+    mode: 'mission',
+    mission: level,
+    schema: getSchemaText(),
+    studentSql: getEditorValue(),
+    hintsRevealed,
+    history,
+    question,
+  });
+}
+
+/**
+ * Traduz o código de erro do chat em uma mensagem para o jogador.
+ * @param {string} code
+ * @returns {string}
+ */
+function chatErrorMessage(code) {
+  switch (code) {
+    case 'AI_HINTS_DISABLED':
+      return 'IA não configurada neste servidor — continue com as dicas locais.';
+    case 'TIMEOUT':
+      return 'A IA demorou demais para responder. Tente perguntar de novo.';
+    case 'RATE_LIMITED':
+      return 'Muitas consultas à IA em pouco tempo. Aguarde um minuto.';
+    case 'CHAT_REJECTED':
+      return 'A resposta da IA entregava a consulta pronta e foi descartada. Reformule a pergunta.';
+    case 'BLOCKED':
+      return 'O conteúdo enviado foi bloqueado pelo filtro do modelo.';
+    default:
+      return 'Não foi possível falar com a IA agora. Tente novamente em instantes.';
+  }
+}
+
+/**
+ * Envia a pergunta escrita no chat e registra a resposta da IA.
+ * O chat não consome dicas nem altera a pontuação.
+ */
+async function sendHintChatMessage() {
+  const input = document.getElementById('hint-chat-input');
+  if (!input) return;
+
+  const question = input.value.trim();
+  if (!question) return;
+  if (state.chatRequestInFlight) return;
+  if (isBossFightMode()) return;
+  if (state.hintsRevealed.length === 0) return;
+
+  let ctx = null;
+  try {
+    ctx = buildActiveChatContext(question);
+  } catch {
+    ctx = null;
+  }
+  if (!ctx) return;
+
+  state.hintChat.push({ role: 'user', text: question });
+  input.value = '';
+
+  const requestToken = `${state.currentCase}:${state.currentLevel}:${Date.now()}`;
+  state.activeChatRequestToken = requestToken;
+  state.chatRequestInFlight = true;
+  renderHintChat(state.hintChat, { pending: true });
+  setHintChatSending(true);
+
+  const abortController = new AbortController();
+  const onMissionChange = () => abortController.abort();
+  document.addEventListener('mission-changed', onMissionChange, { once: true });
+
+  try {
+    const result = await requestAiChat(ctx, { signal: abortController.signal });
+
+    if (state.activeChatRequestToken !== requestToken) return;
+
+    if (result.ok && result.reply) {
+      state.hintChat.push({ role: 'model', text: result.reply });
+      renderHintChat(state.hintChat);
+    } else {
+      renderHintChat(state.hintChat, { notice: chatErrorMessage(result.error?.code) });
+    }
+  } catch {
+    if (state.activeChatRequestToken !== requestToken) return;
+    renderHintChat(state.hintChat, { notice: chatErrorMessage('UNKNOWN') });
+  } finally {
+    document.removeEventListener('mission-changed', onMissionChange);
+    if (state.activeChatRequestToken === requestToken) {
+      state.chatRequestInFlight = false;
+      state.activeChatRequestToken = null;
+      setHintChatSending(false);
+    }
+  }
+}
+
 function initBasicEvents() {
   const btnRun = document.getElementById('btn-run');
   const btnClear = document.getElementById('btn-clear');
@@ -1664,12 +2007,16 @@ function initBasicEvents() {
           state.bossByCase[state.currentCase] = withStep;
 
           if (step.executionMode === 'create_view' || step.executionMode === 'ddl') {
-            setSchema(getSchemaText());
+            refreshDatabaseSchemaUi();
           }
 
           if (isBattleWon(battle, withStep)) {
             const elapsed = bossElapsedMs(battle, withStep);
             const won = winBattle(battle, withStep, elapsed);
+            if (bossTimerHandle) {
+              clearInterval(bossTimerHandle);
+              bossTimerHandle = null;
+            }
             state.bossByCase[state.currentCase] = won;
             state.score += won.scoreAwarded;
             state.bossByCase[state.currentCase] = won;
@@ -1689,14 +2036,21 @@ function initBasicEvents() {
             return;
           }
 
-          persistState();
           const nextStep = getActiveStep(battle, withStep);
           if (nextStep) {
-            loadMission(nextStep.id);
-          } else {
-            loadBossFight(step.id);
+            persistState();
+            renderBossRail(battle, null, withStep.completedSteps);
+            enableEditorButtons(false);
+            const help = document.getElementById('editor-help');
+            if (help) help.textContent = 'Etapa validada. Avance para a próxima etapa do Boss Fight.';
+            const btnNextEl = document.getElementById('btn-next');
+            if (btnNextEl) {
+              btnNextEl.hidden = false;
+              btnNextEl.focus();
+            }
+            playSuccessSound();
+            updateBossTimerReadout(bossElapsedMs(battle, withStep));
           }
-          startBossTimer();
           return;
         }
 
@@ -1707,7 +2061,12 @@ function initBasicEvents() {
         }
         updateBossTimerReadout(bossElapsedMs(battle, updatedBoss));
         return;
-        } catch (err) { console.error('Erro ao validar etapa do Boss Fight:', err); }
+        } catch (err) {
+          console.error('Erro ao validar etapa do Boss Fight:', err);
+          setResults('<div class="feedback feedback-error">Não foi possível concluir a validação do Boss Fight. Recarregue a página e tente novamente.</div>');
+          playAlertSound();
+          return;
+        }
       }
 
       // --- Modo Bug Hunter: validação de correção de bugs ---
@@ -1749,7 +2108,7 @@ function initBasicEvents() {
           }
 
           if (challenge.executionMode === 'ddl' && /^\s*CREATE\b/i.test(sql)) {
-            setSchema(getSchemaText());
+            refreshDatabaseSchemaUi();
           }
 
           renderBugEvidence(activeCase.BUG_CHALLENGES, state.completedLevels);
@@ -1798,15 +2157,32 @@ function initBasicEvents() {
         const challenge = getActiveSchemaChallenge();
         if (!challenge) { setResults('<div class="feedback feedback-error">Nenhum desafio ativo.</div>'); return; }
 
+        if (!sql.trim()) {
+          const emptyFeedback = {
+            type: SB_FEEDBACK_INCOMPLETE,
+            message: 'O rascunho está vazio. Escreva um CREATE TABLE ou DROP TABLE antes de validar; o modelo acumulado não foi alterado.',
+          };
+          renderSchemaFeedback(emptyFeedback);
+          state.lastValidationFeedback = emptyFeedback;
+          if (sqlEditor) sqlEditor.focus();
+          return;
+        }
+
         // 1. Bloqueia comandos proibidos ANTES de tocar no banco ou persistir
         // qualquer coisa. Sem isso o comando roda, entra no modelo salvo e trava
         // o desafio: toda validação seguinte reencontra a palavra proibida no
         // DDL acumulado e devolve "bloqueado" para sempre.
-        const forbidden = findForbiddenKeyword(sql);
+        const draftStatements = splitSchemaModelStatements(sql);
+        const forbidden = draftStatements
+          .map((statement) => {
+            const keyword = findForbiddenKeyword(statement);
+            return keyword === 'DROP' && getDroppedTableName(statement) ? null : keyword;
+          })
+          .find(Boolean);
         if (forbidden) {
           const blockedFeedback = {
             type: SB_FEEDBACK_BLOCKED,
-            message: `Comando "${forbidden}" não é permitido neste modo. Aqui você apenas cria tabelas (CREATE TABLE) e consulta.`,
+            message: `Comando "${forbidden}" não é permitido neste modo. Use CREATE TABLE, DROP TABLE ou uma consulta.`,
           };
           renderSchemaFeedback(blockedFeedback);
           state.lastValidationFeedback = blockedFeedback;
@@ -1816,8 +2192,76 @@ function initBasicEvents() {
         // 2. O modelo acumulado é a fonte da verdade. Um CREATE TABLE para uma
         // tabela já presente substitui a definição anterior, o que permite ao
         // jogador corrigir um erro sem recomeçar o desafio.
-        const mergedStatements = mergeSchemaStatements(state.schemaBuilderDdl[challenge.id], sql);
+        const previousStatements = keepAllowedSchemaTables(
+          mergeSchemaStatements(state.schemaBuilderDdl[challenge.id], ''),
+          challenge
+        );
+        let mergedStatements = [...previousStatements];
+        const removedTables = [];
+        const missingDrops = [];
+        for (const statement of draftStatements) {
+          const droppedTable = getDroppedTableName(statement);
+          if (!droppedTable) {
+            mergedStatements = mergeSchemaStatements(mergedStatements, statement);
+            continue;
+          }
+
+          const normalizedDrop = droppedTable.toLowerCase();
+          const existingIndex = mergedStatements.findIndex((savedStatement) =>
+            String(getCreatedTableName(savedStatement) || '').toLowerCase() === normalizedDrop
+          );
+          if (existingIndex >= 0) {
+            mergedStatements.splice(existingIndex, 1);
+            removedTables.push(droppedTable);
+          } else if (!/\bDROP\s+TABLE\s+IF\s+EXISTS\b/i.test(stripNoise(statement))) {
+            missingDrops.push(droppedTable);
+          }
+        }
+
+        if (missingDrops.length > 0) {
+          const dropFeedback = {
+            type: 'sql_error',
+            message: `A tabela "${missingDrops[0]}" não existe no modelo acumulado. Nenhuma alteração foi salva.`,
+          };
+          renderSchemaFeedback(dropFeedback);
+          state.lastValidationFeedback = dropFeedback;
+          return;
+        }
         const updatedDdl = mergedStatements.join('\n');
+
+        const rejectedTables = getRejectedSchemaTables(mergedStatements, challenge);
+
+        if (rejectedTables.length > 0) {
+          // A tentativa é atômica: se contiver uma tabela fora do briefing,
+          // nenhuma alteração desse rascunho entra no modelo acumulado.
+          const retainedStatements = previousStatements;
+          const retainedDdl = retainedStatements.join('\n');
+          state.schemaBuilderDdl[challenge.id] = retainedStatements;
+          persistState();
+
+          renderSchemaChallenge(
+            challenge,
+            retainedDdl,
+            state.completedLevels,
+            getCreatedTableNames(retainedDdl)
+          );
+
+          await initDB('schema-builder', { force: true });
+          const restoredDb = getDB();
+          if (restoredDb && retainedDdl) executeMultipleStatements(retainedDdl, restoredDb);
+          refreshDatabaseSchemaUi();
+          if (restoredDb) {
+            try { renderSchemaDetailed(restoredDb); } catch { /* banco pode estar vazio */ }
+          }
+
+          const unexpectedFeedback = {
+            type: SB_FEEDBACK_UNEXPECTED_TABLE,
+            message: `Tabela inesperada: "${rejectedTables[0]}". Ela foi descartada do modelo acumulado; continue apenas com as entidades pedidas.`,
+          };
+          renderSchemaFeedback(unexpectedFeedback);
+          state.lastValidationFeedback = unexpectedFeedback;
+          return;
+        }
 
         // 3. Recria o banco vazio e aplica o modelo inteiro do zero. Sem isso, as
         // instruções já aplicadas em execuções anteriores voltariam a rodar e
@@ -1841,7 +2285,9 @@ function initBasicEvents() {
         // CREATE TABLE escrito errado) precisa rodar mesmo assim — caso contrário
         // uma instrução inválida seria descartada em silêncio e o jogador veria
         // "modelo validado" sem que o que ele digitou tivesse efeito algum.
-        const extraStatements = splitStatements(sql).filter(item => getCreatedTableName(item) === null);
+        const extraStatements = draftStatements.filter(item =>
+          getCreatedTableName(item) === null && getDroppedTableName(item) === null
+        );
         if (extraStatements.length > 0) {
           const extra = executeMultipleStatements(extraStatements.join('\n'), schemaDb);
           if (extra.errors.length > 0) {
@@ -1854,14 +2300,20 @@ function initBasicEvents() {
           }
         }
 
-        // 4. Só agora o modelo válido é persistido e devolvido ao editor.
+        // 4. Só agora o modelo válido é persistido. O editor continua sendo
+        // o rascunho atual; checklist, diagrama e estado guardam o modelo completo.
         state.schemaBuilderDdl[challenge.id] = mergedStatements;
         persistState();
-        setEditorValue(updatedDdl);
         renderSchemaChallenge(challenge, updatedDdl, state.completedLevels, getCreatedTableNames(updatedDdl));
-        setSchema(getSchemaText());
+        refreshDatabaseSchemaUi();
         // O banco já contém o modelo aplicado acima; validar por introspecção.
-        const feedback = validateSchemaChallenge(updatedDdl, challenge, schemaDb, { applyDdl: false });
+        const validationFeedback = validateSchemaChallenge(updatedDdl, challenge, schemaDb, { applyDdl: false });
+        const feedback = removedTables.length > 0
+          ? {
+              ...validationFeedback,
+              message: `Tabela "${removedTables.join('", "')}" removida do modelo. ${validationFeedback.message}`,
+            }
+          : validationFeedback;
         renderSchemaFeedback(feedback);
         state.lastValidationFeedback = {
           type: feedback.type,
@@ -1887,7 +2339,7 @@ function initBasicEvents() {
             playSuccessSound();
           }
 
-          setSchema(getSchemaText());
+          refreshDatabaseSchemaUi();
           enableEditorButtons(false);
           const currentEditorHelp = document.getElementById('editor-help');
           if (currentEditorHelp) currentEditorHelp.textContent = 'Modelo validado pela IA arquiteta local. Avance para o próximo desafio.';
@@ -1952,7 +2404,7 @@ function initBasicEvents() {
         }
 
         if (
-          state.completedLevels.length >= activeCase.getTotalLevels()
+          areAllCaseLevelsCompleted(activeCase)
           && !activeCase.GAMEPLAY?.finalChallenge
           && !state.completedAt
         ) {
@@ -1967,7 +2419,7 @@ function initBasicEvents() {
         }
 
         if (level.executionMode === 'create_view' || (level.executionMode === 'ddl' && /^\s*CREATE\b/i.test(sql))) {
-          setSchema(getSchemaText());
+          refreshDatabaseSchemaUi();
         }
 
         renderEvidence(state.evidence, activeCase.LEVELS, state.completedLevels);
@@ -2011,16 +2463,17 @@ function initBasicEvents() {
           persistState();
         }
 
-        if (state.completedLevels.length >= activeCase.getTotalLevels()) {
+        if (areAllCaseLevelsCompleted(activeCase)) {
           if (activeCase.GAMEPLAY?.finalChallenge) {
             const fc = activeCase.GAMEPLAY.finalChallenge;
             const startResult = startInterrogation(fc, state.completedLevels, state.interrogation);
+            state.interrogation = startResult.state;
             if (startResult.started) {
-              state.interrogation = startResult.state;
               showStartInterrogationButton(true);
               persistState();
               document.dispatchEvent(new CustomEvent('interrogation-start'));
             } else if (state.interrogation.status === 'won') {
+              persistState();
               offerOrConclude(activeCase);
             }
           } else {
@@ -2034,7 +2487,9 @@ function initBasicEvents() {
   if (btnClear) {
     btnClear.addEventListener('click', () => {
       clearEditor();
-      setResults('<p class="placeholder-text">Aguardando consulta. Escreva sua query e execute.</p>');
+      setResults(isSchemaBuilderMode()
+        ? '<p class="placeholder-text">Rascunho limpo. O modelo acumulado continua salvo.</p>'
+        : '<p class="placeholder-text">Aguardando consulta. Escreva sua query e execute.</p>');
     });
   }
 
@@ -2108,7 +2563,7 @@ function initBasicEvents() {
         if (state.activeHintRequestToken !== requestToken) return;
 
         if (result.ok && result.hint) {
-          state.hintsRevealed.push({ source: 'ollama', text: result.hint });
+          state.hintsRevealed.push({ source: 'gemini', text: result.hint });
           renderHints(level, state.hintsRevealed);
         } else {
           if (state.hintsRevealed.length < level.hints.length) {
@@ -2205,6 +2660,36 @@ function initBasicEvents() {
     });
   }
 
+  const hintChatForm = document.getElementById('hint-chat-form');
+  const hintChatInput = document.getElementById('hint-chat-input');
+
+  if (hintChatForm) {
+    hintChatForm.addEventListener('submit', (event) => {
+      event.preventDefault();
+      sendHintChatMessage();
+    });
+  }
+
+  if (hintChatInput) {
+    hintChatInput.addEventListener('keydown', (event) => {
+      // ENTER envia; SHIFT+ENTER quebra linha.
+      if (event.key === 'Enter' && !event.shiftKey) {
+        event.preventDefault();
+        sendHintChatMessage();
+      }
+    });
+  }
+
+  // Trocar de missão zera a conversa: o contexto da IA muda por completo.
+  document.addEventListener('mission-changed', () => {
+    state.hintChat = [];
+    state.chatRequestInFlight = false;
+    state.activeChatRequestToken = null;
+    setHintChatSending(false);
+    renderHintChat(state.hintChat);
+    setHintChatVisible(false);
+  });
+
   if (btnNext) {
     btnNext.addEventListener('click', () => {
       const activeCase = getActiveCase();
@@ -2213,7 +2698,7 @@ function initBasicEvents() {
         if (!battle) return;
         const bossState = normalizeBossState(state.bossByCase[state.currentCase] || {});
         const activeStep = getActiveStep(battle, bossState);
-        if (!activeStep) return;
+        if (!activeStep || activeStep.id === state.currentLevel) return;
         // Marca o step atual como concluído manualmente? Não: a conclusão ocorre
         // somente via validação. O btn-next aqui apenas avança para o step ativo
         // quando a validação o liberou (hidden/show controlado por loadBossFight).
@@ -2313,8 +2798,11 @@ function initBasicEvents() {
       const help = document.getElementById('editor-help');
       if (help) help.textContent = 'Use SELECT ou WITH para consultar o banco.';
       await initDB(state.currentCase, { force: true });
-      restoreCompletedMissionViews(getActiveCase(), getDB());
-      setSchema(getSchemaText());
+      const activeCase = getActiveCase();
+      const db = getDB();
+      restoreCompletedMissionViews(activeCase, db);
+      restoreCompletedBossSteps(activeCase.id, db);
+      refreshDatabaseSchemaUi();
       const levelToLoad = state.savedLevel || state.currentLevel || 1;
       state.savedLevel = null;
       loadMission(levelToLoad);
@@ -2360,8 +2848,10 @@ function initBasicEvents() {
 
   const btnER = document.getElementById('btn-er');
   const btnERClose = document.getElementById('btn-er-close');
+  const btnERFit = document.getElementById('btn-er-fit');
   const erModal = document.getElementById('er-modal');
   const erContent = document.getElementById('er-diagram-content');
+  const sidebarErContent = document.getElementById('sidebar-er-diagram-content');
 
   if (btnER) {
     btnER.addEventListener('click', () => {
@@ -2374,6 +2864,24 @@ function initBasicEvents() {
       }
     });
   }
+
+  if (btnERFit) {
+    btnERFit.addEventListener('click', () => {
+      if (!sidebarErContent) return;
+      const isFit = sidebarErContent.classList.toggle('fit-width');
+      btnERFit.textContent = isFit ? '100%' : 'AJUSTAR';
+      btnERFit.setAttribute('aria-pressed', String(isFit));
+    });
+  }
+
+  document.addEventListener('sidebar-tab-activated', (e) => {
+    if (e.detail?.tab === 'diagram') {
+      const el = document.getElementById('sidebar-er-diagram-content');
+      if (el) {
+        try { renderERDiagram(el); } catch { /* banco vazio */ }
+      }
+    }
+  });
 
   if (btnERClose) {
     btnERClose.addEventListener('click', () => {
@@ -2457,41 +2965,51 @@ function initBasicEvents() {
     if (result.completed && !state.completedAt) state.completedAt = new Date().toISOString();
     persistState();
 
-      if (result.accepted) {
-      if (result.completed) {
-        showStartInterrogationButton(false);
-        setInterrogationFeedback(result.message || 'Evidência aceita.', true);
-        setTimeout(() => {
-          hideInterrogationModal();
-          offerOrConclude(activeCase);
-        }, 1500);
-      } else {
-        const unlockedEvidences = getUnlockedEvents(activeCase.GAMEPLAY.timeline, state.completedLevels);
-        showInterrogationModal(fc, state.interrogation, unlockedEvidences);
-        setInterrogationFeedback(result.message || 'Evidência aceita.', true);
-      }
+    if (result.accepted) {
+      document.querySelectorAll('.interrogation-evidence-btn').forEach(button => {
+        button.disabled = true;
+      });
+      setInterrogationFeedback(result.message || 'Evidência aceita.', true);
+      if (result.completed) showStartInterrogationButton(false);
+      showInterrogationAdvanceButton(result.completed);
     } else {
       setInterrogationFeedback(result.message || 'Evidência incorreta. O suspeito refutou a alegação.', false);
     }
   });
 
+  const btnInterrogationAdvance = document.getElementById('btn-interrogation-advance');
+  if (btnInterrogationAdvance) {
+    btnInterrogationAdvance.addEventListener('click', () => {
+      const activeCase = getActiveCase();
+      if (state.interrogation.status === 'won') {
+        closeInterrogationSession(activeCase);
+        return;
+      }
+      const finalChallenge = activeCase.GAMEPLAY?.finalChallenge;
+      if (!finalChallenge || state.interrogation.status !== 'active') return;
+      const unlockedEvidences = getUnlockedEvents(
+        activeCase.GAMEPLAY.timeline,
+        state.completedLevels
+      );
+      showInterrogationModal(finalChallenge, state.interrogation, unlockedEvidences);
+    });
+  }
+
   const btnInterrogationClose = document.getElementById('btn-interrogation-close');
   if (btnInterrogationClose) {
     btnInterrogationClose.addEventListener('click', () => {
-      hideInterrogationModal();
-      const activeCase = getActiveCase();
-      const canResume = Boolean(
-        activeCase.GAMEPLAY?.finalChallenge
-        && state.completedLevels.length >= activeCase.getTotalLevels()
-        && state.interrogation.status !== 'won'
-      );
-      showStartInterrogationButton(canResume);
+      closeInterrogationSession(getActiveCase());
     });
   }
 
   document.addEventListener('keydown', (e) => {
     if (e.key === 'Escape' && dom_interrogationModal_visible()) {
-      hideInterrogationModal();
+      e.preventDefault?.();
+      closeInterrogationSession(getActiveCase());
+      return;
+    }
+    if (e.key === 'Tab' && dom_interrogationModal_visible()) {
+      trapInterrogationFocus(e);
     }
   });
 
@@ -2502,10 +3020,14 @@ function initBasicEvents() {
       if (!activeCase.GAMEPLAY?.finalChallenge) return;
       const fc = activeCase.GAMEPLAY.finalChallenge;
       const startResult = startInterrogation(fc, state.completedLevels, state.interrogation);
+      state.interrogation = startResult.state;
       if (startResult.started) {
-        state.interrogation = startResult.state;
         persistState();
         document.dispatchEvent(new CustomEvent('interrogation-start'));
+      } else if (state.interrogation.status === 'won') {
+        showStartInterrogationButton(false);
+        persistState();
+        offerOrConclude(activeCase);
       }
     });
   }
@@ -2514,6 +3036,45 @@ function initBasicEvents() {
 function dom_interrogationModal_visible() {
   const modal = document.getElementById('interrogation-modal');
   return modal && !modal.hidden;
+}
+
+function closeInterrogationSession(activeCase) {
+  hideInterrogationModal();
+  if (state.interrogation.status === 'won') {
+    showStartInterrogationButton(false);
+    offerOrConclude(activeCase);
+    return;
+  }
+  const canResume = Boolean(
+    activeCase.GAMEPLAY?.finalChallenge
+    && areAllCaseLevelsCompleted(activeCase)
+  );
+  showStartInterrogationButton(canResume);
+}
+
+function trapInterrogationFocus(event) {
+  const modal = document.getElementById('interrogation-modal');
+  if (!modal) return;
+  const focusable = Array.from(modal.querySelectorAll(
+    'button:not([disabled]):not([hidden]), a[href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
+  )).filter(element => !element.hidden && element.getAttribute?.('aria-hidden') !== 'true');
+  if (focusable.length === 0) return;
+
+  const first = focusable[0];
+  const last = focusable[focusable.length - 1];
+  const activeElement = document.activeElement;
+  const focusIsInside = typeof modal.contains === 'function'
+    ? modal.contains(activeElement)
+    : focusable.includes(activeElement);
+  const activeIsFocusable = focusable.includes(activeElement);
+
+  if (!focusIsInside || !activeIsFocusable || (event.shiftKey && activeElement === first)) {
+    event.preventDefault();
+    (event.shiftKey ? last : first).focus();
+  } else if (!event.shiftKey && activeElement === last) {
+    event.preventDefault();
+    first.focus();
+  }
 }
 
   if (typeof globalThis !== 'undefined' && globalThis.__SQL_DETECTIVE_TEST__) {
@@ -2533,6 +3094,7 @@ function dom_interrogationModal_visible() {
     hideDatabaseAnalysis,
     recalculateScore,
     restoreCompletedMissionViews,
+    restoreCompletedBossSteps,
     resetActiveCaseProgress,
     showCourseLesson,
     loadClientRealChallenge,

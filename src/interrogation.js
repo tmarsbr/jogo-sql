@@ -34,6 +34,74 @@ export function normalizeInterrogationState(state) {
 }
 
 /**
+ * Reconcilia um save com as etapas reais do confronto.
+ * O conjunto de evidências apresentadas é a fonte de verdade: isso recupera
+ * saves antigos/corrompidos sem deixar a sessão presa em um índice inexistente.
+ * @param {object} finalChallenge
+ * @param {object|null} interrogationState
+ * @returns {{status: string, stepIndex: number, presentedEvidenceIds: string[]}}
+ */
+export function reconcileInterrogationState(finalChallenge, interrogationState) {
+  const state = normalizeInterrogationState(interrogationState);
+  const steps = Array.isArray(finalChallenge?.steps) ? finalChallenge.steps : [];
+
+  if (steps.length === 0) {
+    return createInterrogationState();
+  }
+
+  const validEvidenceIds = new Set(
+    steps
+      .map(step => step?.evidenceId)
+      .filter(id => typeof id === 'string' && id.length > 0)
+  );
+  const presentedSet = new Set(
+    state.presentedEvidenceIds.filter(id => validEvidenceIds.has(id))
+  );
+
+  if (state.status === 'won') {
+    // Compatibilidade com saves antigos, que registravam a vitória sem todos
+    // os IDs. A conclusão do caso ainda exige todas as missões em case-manager.
+    return {
+      status: 'won',
+      stepIndex: steps.length,
+      presentedEvidenceIds: [...presentedSet],
+    };
+  }
+
+  if (state.status === 'locked') {
+    return createInterrogationState();
+  }
+
+  // Só preserva o prefixo concluído na ordem configurada. Evidências soltas de
+  // um save inconsistente não podem pular perguntas do confronto.
+  const completedEvidenceIds = [];
+  for (const step of steps) {
+    if (!presentedSet.has(step.evidenceId)) break;
+    completedEvidenceIds.push(step.evidenceId);
+  }
+
+  if (completedEvidenceIds.length === steps.length) {
+    return {
+      status: 'won',
+      stepIndex: steps.length,
+      presentedEvidenceIds: completedEvidenceIds,
+    };
+  }
+
+  return {
+    status: 'active',
+    stepIndex: completedEvidenceIds.length,
+    presentedEvidenceIds: completedEvidenceIds,
+  };
+}
+
+function isSupportedFinalChallenge(finalChallenge) {
+  return ['interrogation', 'confrontation'].includes(finalChallenge?.type)
+    && Array.isArray(finalChallenge.steps)
+    && finalChallenge.steps.length > 0;
+}
+
+/**
  * Verifica se o interrogatório está disponível.
  * @param {object} finalChallenge config do desafio final
  * @param {number[]} completedLevels
@@ -41,10 +109,11 @@ export function normalizeInterrogationState(state) {
  * @returns {boolean}
  */
 export function isInterrogationAvailable(finalChallenge, completedLevels, interrogationState) {
-  if (!finalChallenge || finalChallenge.type !== 'interrogation') return false;
-  if (interrogationState.status === 'won') return false;
+  if (!isSupportedFinalChallenge(finalChallenge)) return false;
+  const state = reconcileInterrogationState(finalChallenge, interrogationState);
+  if (state.status === 'won') return false;
   const requiredMission = finalChallenge.requiredMission;
-  return completedLevels.includes(requiredMission);
+  return Array.isArray(completedLevels) && completedLevels.includes(requiredMission);
 }
 
 /**
@@ -55,7 +124,11 @@ export function isInterrogationAvailable(finalChallenge, completedLevels, interr
  * @returns {{started: boolean, state: object, reason?: string}}
  */
 export function startInterrogation(finalChallenge, completedLevels, interrogationState) {
-  const state = normalizeInterrogationState(interrogationState);
+  const state = reconcileInterrogationState(finalChallenge, interrogationState);
+
+  if (state.status === 'won') {
+    return { started: false, state, reason: 'already_won' };
+  }
 
   if (!isInterrogationAvailable(finalChallenge, completedLevels, state)) {
     return { started: false, state, reason: 'not_available' };
@@ -81,7 +154,7 @@ export function startInterrogation(finalChallenge, completedLevels, interrogatio
  * @returns {{accepted: boolean, completed: boolean, state: object, reason?: string, message?: string}}
  */
 export function presentEvidence(finalChallenge, completedLevels, timelineConfig, interrogationState, evidenceId) {
-  const state = normalizeInterrogationState(interrogationState);
+  const state = reconcileInterrogationState(finalChallenge, interrogationState);
 
   if (state.status === 'won') {
     return { accepted: false, completed: true, state, reason: 'already_won' };
@@ -114,6 +187,16 @@ export function presentEvidence(finalChallenge, completedLevels, timelineConfig,
   );
   if (!unlockedIds.has(evidenceId)) {
     return { accepted: false, completed: false, state, reason: 'evidence_locked' };
+  }
+
+  if (state.presentedEvidenceIds.includes(evidenceId)) {
+    return {
+      accepted: false,
+      completed: false,
+      state,
+      reason: 'already_presented',
+      message: 'Essa evidência já foi apresentada nesta sessão.',
+    };
   }
 
   const currentStep = steps[stepIndex];

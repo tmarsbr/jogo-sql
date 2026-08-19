@@ -1,4 +1,6 @@
 /** Testes focados nas regressões de interface do tema Cyber Forensics. */
+const fs = require('fs');
+const path = require('path');
 const { readSource, transformESM, evalModule } = require('./helpers/load-source');
 
 let passed = 0;
@@ -46,12 +48,12 @@ function createElement(id, classes = []) {
 function createDocument() {
   const elements = new Map();
   const documentListeners = [];
-  const sidebarTabs = ['lesson', 'evidence', 'graph', 'timeline', 'suspects', 'hints'].map((name, index) => {
+  const sidebarTabs = ['lesson', 'diagram', 'evidence', 'graph', 'timeline', 'suspects', 'hints'].map((name, index) => {
     const el = createElement(`sidebar-tab-${name}`, index === 0 ? ['active'] : []);
     el.dataset.sidebarTab = name;
     return el;
   });
-  const sidebarPanes = ['lesson', 'evidence', 'graph', 'timeline', 'suspects', 'hints'].map((name, index) =>
+  const sidebarPanes = ['lesson', 'diagram', 'evidence', 'graph', 'timeline', 'suspects', 'hints'].map((name, index) =>
     createElement(`sidebar-pane-${name}`, index === 0 ? ['sidebar-tab-pane', 'active'] : ['sidebar-tab-pane'])
   );
   for (const el of [...sidebarTabs, ...sidebarPanes]) elements.set(el.id, el);
@@ -142,10 +144,19 @@ assert(get('evidence-display').innerHTML.includes('EVIDÊNCIA 12'), 'cartão da 
 console.log('\n[4] Abas incompatíveis voltam para Evidências');
 sidebarTabs.forEach(tab => tab.classList.remove('active'));
 sidebarTabs.find(tab => tab.dataset.sidebarTab === 'timeline').classList.add('active');
-ui.configureSidebarTabs({ graph: false, timeline: false, suspects: false, lesson: false });
+get('sidebar-tabs-nav').hidden = true;
+ui.configureSidebarTabs({ graph: false, timeline: false, suspects: false, lesson: false, diagram: false });
+assert(get('sidebar-tabs-nav').hidden === false, 'barra de Aula, Evidências e Dicas volta a ficar visível');
 assert(sidebarTabs.find(tab => tab.dataset.sidebarTab === 'timeline').hidden === true, 'aba Tempo é ocultada sem gameplay');
 assert(sidebarTabs.find(tab => tab.dataset.sidebarTab === 'evidence').classList.contains('active'), 'Evidências volta a ser a aba ativa');
 assert(sidebarPanes.find(pane => pane.id === 'sidebar-pane-evidence').hidden === false, 'painel de Evidências fica visível');
+
+console.log('\n[4b] Aba de Diagrama é configurada e ativada');
+ui.configureSidebarTabs({ graph: false, timeline: false, suspects: false, lesson: false, diagram: true });
+assert(sidebarTabs.find(tab => tab.dataset.sidebarTab === 'diagram').hidden === false, 'aba Diagrama está visível');
+ui.activateSidebarTab('diagram');
+assert(sidebarTabs.find(tab => tab.dataset.sidebarTab === 'diagram').classList.contains('active'), 'aba Diagrama fica ativa');
+assert(sidebarPanes.find(pane => pane.id === 'sidebar-pane-diagram').hidden === false, 'painel do Diagrama fica visível');
 
 console.log('\n[5] Timeline só habilita verificação com todos os eventos');
 const timeline = {
@@ -172,7 +183,137 @@ assert(get('rail-buttons-container').innerHTML.includes('rail-lesson-check'), 'r
 ui.renderMissionRail([lessonLevel], 2, [], null, [], [2]);
 assert(get('rail-buttons-container').innerHTML.includes('disabled aria-disabled="true"'), 'rail desabilita missão sequencial ainda bloqueada');
 
-console.log('\n[7] CTA da aula abre também o painel externo no mobile');
+console.log('\n[6b] Rails especiais permanecem compactos e acessíveis');
+ui.renderSchemaRail([
+  { id: 1, number: 1, title: 'TechStart: Funcionários e Departamentos' },
+  { id: 2, number: 2, title: 'TechStart: Projetos e Relação N:N' },
+], 1, [2]);
+let compactRailHtml = get('rail-buttons-container').innerHTML;
+assert(compactRailHtml.includes('class="rail-btn active"'), 'Schema Builder reutiliza o botão compacto no item ativo');
+assert(compactRailHtml.includes('class="rail-btn completed"'), 'Schema Builder sinaliza item concluído');
+assert(compactRailHtml.includes('aria-label="Modelo 01: TechStart:'), 'título completo do modelo permanece acessível');
+assert(/>01<\/button>/.test(compactRailHtml), 'modelo pendente mostra somente o número dentro do rail');
+
+ui.renderBugRail([
+  { id: 'bug-1', number: 1, title: 'Consulta com JOIN incorreto' },
+], 'bug-1', []);
+compactRailHtml = get('rail-buttons-container').innerHTML;
+assert(compactRailHtml.includes('class="rail-btn active"'), 'Bug Hunter reutiliza o botão compacto');
+assert(compactRailHtml.includes('aria-label="Relatório 01: Consulta com JOIN incorreto'), 'título completo do relatório permanece acessível');
+assert(/>01<\/button>/.test(compactRailHtml), 'relatório mostra somente o número dentro do rail');
+
+console.log('\n[7] Briefing publica o contrato de saída da missão');
+const contractLevel = {
+  id: 2,
+  title: 'Investimento por Canal',
+  concept: 'SUM + JOIN',
+  briefing: 'Teste',
+  objective: 'Calcule o custo total investido em cada canal.',
+  tables: ['canais', 'custos_diarios'],
+  expectedColumns: ['canal', 'custo_total_centavos'],
+  requiredConcepts: ['left join', 'coalesce'],
+  requirements: ['Canais sem investimento devem exibir 0 — nunca NULL.'],
+  courseRefs: ['dml-select-where'],
+};
+ui.renderMission(contractLevel, [lessonItem], []);
+const contractHtml = get('briefing-content').innerHTML;
+assert(contractHtml.includes('SAÍDA ESPERADA'), 'briefing anuncia o contrato de saída');
+assert(contractHtml.includes('custo_total_centavos'), 'briefing revela os aliases exigidos pelo validador');
+assert(contractHtml.includes('nunca NULL'), 'briefing lista as regras que mudam o resultado');
+assert(contractHtml.includes('LEFT JOIN'), 'briefing lista as técnicas obrigatórias');
+
+const viewContract = ui.buildMissionContract({
+  expectedColumns: ['codigo', 'media_notas'],
+  executionMode: 'create_view',
+  viewName: 'vw_teste',
+});
+assert(viewContract.includes('vw_teste'), 'missão de view informa o nome exato exigido');
+assert(ui.buildMissionContract({ title: 'Sem contrato' }) === '', 'missão sem contrato não renderiza o bloco');
+
+console.log('\n[8] Confronto final identifica opções e remove evidências já usadas');
+ui.showInterrogationModal({
+  type: 'confrontation',
+  suspectName: 'Diretoria TechBrasil',
+  steps: [
+    { statement: 'Primeira pergunta', evidenceId: 'ev-a' },
+    { statement: 'Segunda pergunta', evidenceId: 'ev-b' },
+    { statement: 'Terceira pergunta', evidenceId: 'ev-c' },
+  ],
+}, {
+  status: 'active',
+  stepIndex: 1,
+  presentedEvidenceIds: ['ev-a'],
+}, [
+  { id: 'ev-a', label: 'Transferência de alto valor', type: 'transação', sortKey: '2024-03-11T21:00:00' },
+  { id: 'ev-b', label: 'Transferência de alto valor', type: 'transação', sortKey: '2024-03-12T23:15:00' },
+  { id: 'ev-c', label: 'Transferência de alto valor', type: 'transação', sortKey: '2024-03-15T22:45:00' },
+]);
+const interrogationHtml = get('interrogation-evidence-list').innerHTML;
+assert(!interrogationHtml.includes('data-evidence-id="ev-a"'), 'evidência já apresentada sai das opções');
+assert(interrogationHtml.includes('data-evidence-id="ev-b"'), 'evidência ainda disponível permanece');
+assert(interrogationHtml.includes('12/03/2024 · 23:15'), 'data e hora distinguem rótulos repetidos');
+assert(get('interrogation-step-progress').textContent === 'CONTRADIÇÃO 2/3', 'progresso mostra a etapa ativa');
+assert(get('interrogation-title').textContent.includes('CONFRONTO FINAL'), 'título acompanha o tipo do desafio');
+assert(get('interrogation-avatar').textContent === 'DT', 'avatar deriva iniciais do participante atual');
+assert(get('interrogation-suspect-role').hidden === true, 'cargo antigo não vaza para outro caso');
+assert(get('btn-interrogation-advance').hidden === true, 'avanço começa oculto antes de um acerto');
+ui.setInterrogationFeedback('Etapa aceita.', true);
+ui.showInterrogationAdvanceButton(false);
+assert(get('btn-interrogation-advance').hidden === false, 'acerto libera avanço explícito');
+assert(get('btn-interrogation-advance').textContent.includes('PRÓXIMA'), 'etapa intermediária anuncia a próxima contradição');
+ui.showInterrogationAdvanceButton(true);
+assert(get('btn-interrogation-advance').textContent.includes('CONCLUIR CASO'), 'último acerto libera conclusão explícita');
+
+const css = fs.readFileSync(path.join(__dirname, '..', 'index.css'), 'utf8');
+const evidenceButtonRule = css.match(/\.interrogation-evidence-btn\s*\{([\s\S]*?)\}/)?.[1] || '';
+assert(/white-space:\s*normal/.test(evidenceButtonRule), 'botão permite quebra de linha');
+assert(/justify-content:\s*space-between/.test(evidenceButtonRule), 'conteúdo não fica centralizado para fora do card');
+assert(css.includes('minmax(min(100%, 220px), 1fr)'), 'grade respeita a largura disponível');
+
+const indexHtml = fs.readFileSync(path.join(__dirname, '..', 'index.html'), 'utf8');
+assert(/src\/app\.js\?v=[^"']+/.test(indexHtml), 'módulo principal usa versão para invalidar runtime antigo');
+assert((indexHtml.match(/data-panel-resizer=/g) || []).length === 2, 'layout inclui duas divisórias ajustáveis');
+assert(indexHtml.includes('role="separator"'), 'divisórias expõem semântica acessível');
+assert(css.includes('var(--briefing-panel-width)'), 'grade usa a largura ajustável do briefing');
+assert(css.includes('var(--sidebar-panel-width)'), 'grade usa a largura ajustável da lateral investigativa');
+assert(/@media\s*\(max-width:\s*1180px\)[\s\S]*?\.panel-resizer\s*\{[\s\S]*?display:\s*none/.test(css), 'divisórias somem antes de a grade ultrapassar a viewport');
+assert(/\.app-grid\s*>\s*\.panel-editor\s*\{\s*grid-column:\s*4/.test(css), 'editor permanece na coluna correta sem o briefing');
+assert(/\.app-grid\s*>\s*\.panel-sidebar\s*\{\s*grid-column:\s*6/.test(css), 'sidebar permanece na coluna correta sem o briefing');
+assert(/briefing-collapsed\s+\.panel-editor\s*\{[\s\S]*?grid-row:\s*1/.test(css), 'tablet remove a linha vazia ao recolher o briefing');
+assert(/\.app-grid\.briefing-collapsed\s*\{[\s\S]*?grid-template-columns:\s*56px\s+minmax\(0,\s*1fr\)/.test(css), 'tablet sobrescreve o template desktop quando o briefing esta recolhido');
+assert(/\.app-grid\s*>\s*\.panel-briefing,[\s\S]*?\.app-grid\s*>\s*\.panel-sidebar\s*\{\s*grid-column:\s*2/.test(css), 'tablet recoloca todos os paineis na coluna de conteudo');
+assert(/briefing-collapsed\s+\.panel-briefing\.active\s*\{[\s\S]*?display:\s*flex\s*!important/.test(css), 'mobile consegue reabrir o briefing recolhido');
+const appGridRule = css.match(/\.app-grid\s*\{([^}]*)\}/)?.[1] || '';
+assert(!/min-height:\s*680px/.test(appGridRule), 'grade principal não força altura maior que a viewport');
+
+console.log('\n[9] Feedback do Schema Builder substitui o estado de espera');
+const resultsContainer = get('results-container');
+let resultsHtml = '<p class="placeholder-text">Aguardando consulta.</p>';
+let renderedFeedback = null;
+let resultClearCount = 0;
+Object.defineProperty(resultsContainer, 'innerHTML', {
+  configurable: true,
+  get() { return resultsHtml; },
+  set(value) {
+    resultsHtml = String(value);
+    if (resultsHtml === '') {
+      renderedFeedback = null;
+      resultClearCount++;
+    }
+  },
+});
+resultsContainer.appendChild = element => { renderedFeedback = element; };
+ui.renderSchemaFeedback(null);
+assert(resultsHtml.includes('placeholder-text'), 'ausÃªncia de feedback preserva o estado inicial do painel');
+assert(resultClearCount === 0, 'ausÃªncia de feedback nÃ£o limpa o painel');
+ui.renderSchemaFeedback({ type: 'sql_error', message: 'near "create": syntax error' });
+assert(!resultsHtml.includes('placeholder-text'), 'erro remove o placeholder contraditório');
+assert(renderedFeedback?.className.includes('feedback-error'), 'erro renderiza um único feedback de falha');
+ui.renderSchemaFeedback({ type: 'missing_table', message: 'Falta funcionarios.' });
+assert(resultClearCount === 2, 'novo feedback substitui integralmente o anterior');
+assert(renderedFeedback?.className.includes('feedback-warn'), 'feedback mais recente permanece visível');
+
+console.log('\n[10] CTA da aula abre também o painel externo no mobile');
 ui.initSidebarTabs();
 document.dispatchEvent({
   type: 'click',

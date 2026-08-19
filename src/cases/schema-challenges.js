@@ -27,8 +27,10 @@ export const SCHEMA_BUILDER_CONCLUSION = {
  * - story: contexto narrativo
  * - requirements: requisitos em linguagem natural (exibidos ao jogador)
  * - summary: resumo curto das cardinalidades para o briefing (exibido)
+ * - inheritsFrom: id de outro desafio cujo modelo deve ser copiado na primeira abertura
  * - expectedTables: nomes de tabelas obrigatórias
  * - unexpectedTables: nomes de tabelas que NÃO deveriam existir
+ * - allowExtraTables: false somente quando o desafio exigir um modelo fechado (padrão: true)
  * - tableChecks: { [tableName]: { columns: [{name, constraints}], pk: [...], fk: [...] } }
  * - junctionTables: { [junctionName]: { connects: [t1, t2] } } (N:N obrigatório)
  * - hints: dicas locais progressivas (4)
@@ -81,6 +83,7 @@ export const SCHEMA_CHALLENGES = [
     title: 'TechStart 2: Projetos e a Relação N:N',
     concept: 'Tabela de junção para cardinalidade N:N',
     story: 'A TechStart agora administra projetos. O CTO notou um problema: um funcionário pode participar de vários projetos e um projeto tem vários funcionários. As planilhas viraram um caos.',
+    inheritsFrom: 1,
     requirements: 'Mantenha departamentos e funcionários do desafio anterior. Adicione projetos, com código único, nome e prazo. Um funcionário pode participar de vários projetos e um projeto pode ter vários funcionários. Crie uma tabela de associação para essa relação muitos-para-muitos, com referência tanto ao funcionário quanto ao projeto.',
     summary: 'funcionarios N ──── N projetos (tabela de junção funcionario_projeto com duas FKs)',
     expectedTables: ['departamentos', 'funcionarios', 'projetos', 'funcionario_projeto'],

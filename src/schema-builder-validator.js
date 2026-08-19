@@ -149,6 +149,68 @@ function splitStatements(sql) {
   return statements;
 }
 
+function terminateStatement(statement) {
+  const source = String(statement || '').trim();
+  if (!source) return '';
+
+  const mask = stripNoise(source);
+  let lastCodeIndex = -1;
+  for (let index = mask.length - 1; index >= 0; index--) {
+    if (!/\s/.test(mask[index])) {
+      lastCodeIndex = index;
+      break;
+    }
+  }
+
+  if (lastCodeIndex < 0 || mask[lastCodeIndex] === ';') return source;
+  return `${source.slice(0, lastCodeIndex + 1)};${source.slice(lastCodeIndex + 1)}`;
+}
+
+/**
+ * Separa CREATE TABLE e DROP TABLE no nível superior, inclusive quando o
+ * rascunho não contém ';' entre os comandos. Ocorrências em strings,
+ * comentários ou dentro da lista de colunas são ignoradas.
+ * @param {string} sql
+ * @returns {string[]}
+ */
+function splitSchemaModelStatements(sql) {
+  const result = [];
+
+  for (const statement of splitStatements(sql || '')) {
+    const source = String(statement).trim();
+    const mask = stripNoise(source);
+    const depthAt = new Int32Array(mask.length);
+    let depth = 0;
+
+    for (let index = 0; index < mask.length; index++) {
+      depthAt[index] = depth;
+      if (mask[index] === '(') depth++;
+      else if (mask[index] === ')') depth = Math.max(0, depth - 1);
+    }
+
+    const starts = [];
+    const createTable = /\b(?:CREATE\s+(?:TEMP(?:ORARY)?\s+)?TABLE|DROP\s+TABLE)\b/gi;
+    let match;
+    while ((match = createTable.exec(mask)) !== null) {
+      if (depthAt[match.index] === 0) starts.push(match.index);
+    }
+
+    if (starts.length <= 1) {
+      result.push(source);
+      continue;
+    }
+
+    for (let index = 0; index < starts.length; index++) {
+      const from = index === 0 ? 0 : starts[index];
+      const to = starts[index + 1] ?? source.length;
+      const fragment = source.slice(from, to).trim();
+      if (fragment) result.push(fragment);
+    }
+  }
+
+  return result;
+}
+
 /**
  * Extrai o nome da tabela criada por uma instrução CREATE TABLE.
  * @param {string} statement uma única instrução SQL
@@ -157,6 +219,13 @@ function splitStatements(sql) {
 function getCreatedTableName(statement) {
   const code = stripNoise(statement);
   const match = code.match(/\bCREATE\s+(?:TEMP(?:ORARY)?\s+)?TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?[`"\[]?([A-Za-z_][\w$]*)/i);
+  return match ? match[1] : null;
+}
+
+/** Extrai o nome removido por um comando DROP TABLE isolado. */
+function getDroppedTableName(statement) {
+  const code = stripNoise(statement);
+  const match = code.match(/^\s*DROP\s+TABLE\s+(?:IF\s+EXISTS\s+)?[`"\[]?([A-Za-z_][\w$]*)[`"\]]?\s*;?\s*$/i);
   return match ? match[1] : null;
 }
 
@@ -189,16 +258,26 @@ function getCreatedTableNames(ddlSql) {
  * @returns {string[]} novo modelo acumulado
  */
 function mergeSchemaStatements(accumulated, incomingSql) {
-  const model = Array.isArray(accumulated) ? [...accumulated] : [];
-
-  for (const statement of splitStatements(incomingSql || '')) {
-    const tableName = getCreatedTableName(statement);
-    if (!tableName) continue;
+  const model = [];
+  const upsert = (statement) => {
+    const normalizedStatement = terminateStatement(statement);
+    const tableName = getCreatedTableName(normalizedStatement);
+    if (!tableName) return;
     const index = model.findIndex(existing =>
       normalizeIdentifier(getCreatedTableName(existing) || '') === normalizeIdentifier(tableName)
     );
-    if (index >= 0) model[index] = statement;
-    else model.push(statement);
+    if (index >= 0) model[index] = normalizedStatement;
+    else model.push(normalizedStatement);
+  };
+
+  if (Array.isArray(accumulated)) {
+    for (const saved of accumulated) {
+      for (const statement of splitSchemaModelStatements(saved)) upsert(statement);
+    }
+  }
+
+  for (const statement of splitSchemaModelStatements(incomingSql || '')) {
+    upsert(statement);
   }
 
   return model;
@@ -409,7 +488,7 @@ export function validateSchemaChallenge(ddlSql, challenge, db, options = {}) {
       missingTables);
   }
 
-  if (challenge.unexpectedTables && challenge.unexpectedTables.length > 0) {
+  if (challenge.allowExtraTables === false && challenge.unexpectedTables && challenge.unexpectedTables.length > 0) {
     const unexpected = [];
     for (const t of challenge.unexpectedTables) {
       if (existing.includes(normalizeIdentifier(t))) unexpected.push(t);
@@ -509,5 +588,5 @@ export function validateSchemaChallenge(ddlSql, challenge, db, options = {}) {
 
 /* Exporta helpers de introspecção para testes */
 export { getExistingTables, getColumnsOfTable, getPrimaryKeys, getForeignKeys, normalizeIdentifier,
-         findForbiddenKeyword, executeMultipleStatements, splitStatements, stripNoise,
-         getCreatedTableName, getCreatedTableNames, mergeSchemaStatements };
+         findForbiddenKeyword, executeMultipleStatements, splitStatements, splitSchemaModelStatements, stripNoise,
+         getCreatedTableName, getDroppedTableName, getCreatedTableNames, mergeSchemaStatements };

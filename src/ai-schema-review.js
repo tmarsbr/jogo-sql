@@ -108,14 +108,14 @@ export function sanitizeModelReview(review) {
  * @param {object} body contexto serializado (saída de buildReviewContext)
  * @param {object} [options]
  * @param {string} [options.endpoint] URL do endpoint
- * @param {number} [options.timeoutMs] timeout em ms (default 30000)
+ * @param {number} [options.timeoutMs] timeout em ms (default 70000)
  * @param {AbortSignal} [options.signal] signal externo para abortar
  * @param {typeof fetch} [options.fetchImpl] injeção para testes
  * @returns {Promise<{ok: boolean, review?: string, source?: string, error?: {code: string, message: string}}>}
  */
 export async function requestAiSchemaReview(body, options = {}) {
   const endpoint = options.endpoint || '/api/ai-schema-review';
-  const timeoutMs = options.timeoutMs || 30000;
+  const timeoutMs = options.timeoutMs || 70000;
   const fetchImpl = options.fetchImpl || ((typeof fetch !== 'undefined') ? fetch : null);
 
   if (!fetchImpl) {
@@ -168,6 +168,6 @@ export async function requestAiSchemaReview(body, options = {}) {
   return {
     ok: true,
     review: data.review || '',
-    source: data.source || 'ollama',
+    source: data.source || 'gemini',
   };
 }

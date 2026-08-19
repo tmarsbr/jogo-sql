@@ -1,7 +1,7 @@
 /** Missões do Caso #002 — Vazamento na Matriz. */
-const mission = (id, title, concept, objective, tables, expectedColumns, referenceQuery, requiredConcepts, hints, evidence, explanation, courseRefs) => ({
+const mission = (id, title, concept, objective, tables, expectedColumns, referenceQuery, requiredConcepts, hints, evidence, explanation, courseRefs, requirements = []) => ({
   id, title, concept, briefing: `A investigação do vazamento precisa de uma consulta precisa. ${objective}`,
-  objective, tables, expectedColumns, referenceQuery, requiredConcepts, hints, evidence, explanation, courseRefs,
+  objective, tables, expectedColumns, referenceQuery, requiredConcepts, hints, evidence, explanation, courseRefs, requirements,
 });
 
 export const CASE_INTRO = {
@@ -64,7 +64,7 @@ export const LEVELS = [
       ],
       'A visão reutilizável do relatório aponta uma única conta com três exportações e 650 registros extraídos.',
       'CREATE VIEW transforma uma consulta validada em uma interface estável para os relatórios de segurança.',
-      ['views','joins-inner-left','aggregation-groupby']
+      ['views','joins-inner-left','aggregation-groupby','having-where-orderby-like']
     ),
     executionMode: 'create_view',
     viewName: 'vw_relatorio_seguranca',

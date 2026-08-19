@@ -5,7 +5,7 @@
  * análise (query via validateLevel do validador comum) e apresentação
  * (relatório via evaluateReport do client-real.js).
  */
-import { validateLevel, FEEDBACK_CORRECT } from './validator.js';
+import { validateLevel, FEEDBACK_CORRECT } from '../validator.js';
 import { evaluateReport } from './client-real.js';
 
 /* Tipos de retorno específicos do modo */

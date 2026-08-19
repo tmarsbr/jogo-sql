@@ -2,9 +2,9 @@
  * levels.js — Missões do Projeto 06: Gestão de Clientes
  */
 
-const mission = (id, title, concept, objective, tables, expectedColumns, referenceQuery, requiredConcepts, hints, evidence, explanation, courseRefs) => ({
+const mission = (id, title, concept, objective, tables, expectedColumns, referenceQuery, requiredConcepts, hints, evidence, explanation, courseRefs, requirements = []) => ({
   id, title, concept, briefing: `Análise de Base de Clientes e Retenção. ${objective}`,
-  objective, tables, expectedColumns, referenceQuery, requiredConcepts, hints, evidence, explanation, courseRefs,
+  objective, tables, expectedColumns, referenceQuery, requiredConcepts, hints, evidence, explanation, courseRefs, requirements,
 });
 
 export const CASE_INTRO = {
@@ -96,7 +96,7 @@ export const LEVELS = [
     ['Parta de clientes e use LEFT JOIN para manter quem nunca comprou.', 'Use MAX(co.data_compra) para obter a data mais recente.', 'Ordene por ultima_compra DESC.'],
     'Clientes com compras recentes têm menor propensão imediata ao churn.',
     'A função de agregação MAX em campos de data extrai o registro cronológico mais novo.',
-    ['aggregation-groupby', 'dml-select-where']
+    ['aggregation-groupby', 'dml-select-where', 'joins-inner-left']
   ),
   mission(
     5,
@@ -180,7 +180,12 @@ export const LEVELS = [
     ['Crie CTEs separadas para agregar gastos e suporte por cliente.', 'Junte clientes, planos e as CTEs.', 'Aplique DENSE_RANK() OVER(ORDER BY g.total_gasto_centavos DESC) AS rank_faturamento.'],
     'A matriz analítica fornece a visão completa de LTV e fricção operacional de cada conta.',
     'Múltiplas CTEs pré-agregadas evitam duplicação de linhas (fan-out) ao cruzar métricas distintas.',
-    ['cte-subqueries', 'window-functions', 'joins-inner-left']
+    ['cte-subqueries', 'window-functions', 'joins-inner-left'],
+    [
+      'Só entram no relatório os clientes que já registraram alguma compra.',
+      'Clientes sem tickets de suporte devem exibir 0 em total_tickets — nunca NULL.',
+      'O rank_faturamento é calculado com DENSE_RANK() sobre o total gasto, do maior para o menor.',
+    ]
   ),
 ];
 

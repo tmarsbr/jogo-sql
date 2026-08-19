@@ -252,7 +252,7 @@ Use LEFT JOIN para incluir todos os funcionários e IS NULL para filtrar aqueles
       'Quando um funcionário não tem transação, as colunas de transacoes ficam NULL. Use WHERE t.id IS NULL.',
       'SELECT f.nome FROM funcionarios f LEFT JOIN transacoes t ON t.operador_funcionario_id = f.id WHERE t.id IS NULL;',
     ],
-    courseRefs: ['joins-inner-left'],
+    courseRefs: ['joins-inner-left', 'null-handling'],
     evidence: `Evidência 8 — Álibis Verificados: Carla Mendes (RH) e Gustavo Barbosa (Comercial) nunca executaram transações. Eles estão descartados como suspeitos. Todos os outros funcionários do departamento Financeiro aparecem como operadores de pelo menos uma transação.`,
     explanation: 'LEFT JOIN inclui todas as linhas da tabela da esquerda, mesmo sem correspondência. IS NULL identifica as linhas sem correspondência — funcionários sem transações.',
   },
@@ -427,6 +427,7 @@ export const GAMEPLAY = {
   finalChallenge: {
     type: 'interrogation',
     suspectName: 'Camila Torres',
+    suspectRole: 'COORDENADORA DE TESOURARIA · ID 7',
     requiredMission: 12,
     steps: [
       { statement: 'Não houve transferência irregular.', evidenceId: 'transfer-501', successMessage: 'A transferência de 12/03 prova o contrário.' },

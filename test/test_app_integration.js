@@ -123,6 +123,9 @@ function createMockUI(document, elements) {
     setLesson: [],
     activateSidebarTab: [],
     activatePanel: [],
+    configureSidebarTabs: [],
+    showBossInvitation: [],
+    renderBossFeedback: [],
   };
 
   const ui = {
@@ -147,8 +150,8 @@ function createMockUI(document, elements) {
     setHints: () => {},
     setEvidence: () => {},
     setLesson: (html) => { calls.setLesson.push(html); },
-    showTabs: () => {},
-    hideTabs: () => {},
+    showTabs: () => { document.getElementById('tabs-nav').hidden = false; },
+    hideTabs: () => { document.getElementById('tabs-nav').hidden = true; },
     initTabs: () => {},
     activatePanel: (name) => { calls.activatePanel.push(name); },
     renderFromState: () => { calls.renderFromState.push(true); },
@@ -186,6 +189,7 @@ function createMockUI(document, elements) {
     showInterrogationModal: () => {},
     hideInterrogationModal: () => {},
     setInterrogationFeedback: () => {},
+    showInterrogationAdvanceButton: () => {},
     showStartInterrogationButton: (visible) => {
       calls.showStartInterrogationButton.push(visible);
       const btn = document.getElementById('btn-start-interrogation');
@@ -193,13 +197,17 @@ function createMockUI(document, elements) {
     },
     initSidebarTabs: () => {},
     activateSidebarTab: (name) => { calls.activateSidebarTab.push(name); },
-    configureSidebarTabs: () => {},
+    configureSidebarTabs: options => {
+      calls.configureSidebarTabs.push(options);
+      document.getElementById('sidebar-tabs-nav').hidden = false;
+    },
     updateLessonTabBadge: () => {},
     initLobbyTabs: () => {},
     activateLobbyTab: () => {},
     renderMissionRail: () => {},
     setHeaderCaseInfo: () => {},
     renderHeaderProgress: () => {},
+    renderBossFeedback: feedback => { calls.renderBossFeedback.push(feedback); },
     escapeHtml: (s) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'),
   };
 
@@ -231,7 +239,7 @@ function createMockDB() {
 // Carrega app.js com todos os mocks
 // ====================================================================
 
-function loadAppWithMocks() {
+function loadAppWithMocks(overrides = {}) {
   const { document, elements, listeners } = createMockDocument();
   const { ui, calls } = createMockUI(document, elements);
   const db = createMockDB();
@@ -293,14 +301,19 @@ function loadAppWithMocks() {
   const stateModule = evalModule(transformESM(readSource('state.js')), {}, 'state.js');
 
   // --- Boss Fight: módulo puro (depende apenas de boss-definitions e validator) ---
+  const bossDefinitions = evalModule(
+    transformESM(readSource('boss-definitions.js')),
+    {},
+    'boss-definitions.js'
+  );
   const bossFightModule = (() => {
     let code = transformESM(readSource('boss-fight.js'));
     // Redireciona o import do validator para o validador já carregado no teste
     // (evita recarregar o módulo real com dependências não mockadas).
     code = code.replace(/from\s+['"]\.\/validator\.js['"];?\s*$/gm, '');
     return evalModule(code, {
-      BATTLE_BY_CASE: undefined,
-      BOSS_STEP_PREFIX: 'boss-',
+      BATTLE_BY_CASE: bossDefinitions.BATTLE_BY_CASE,
+      BOSS_STEP_PREFIX: bossDefinitions.BOSS_STEP_PREFIX,
       validateLevel: validator.validateLevel,
       FEEDBACK_CORRECT: validator.FEEDBACK_CORRECT,
     }, 'boss-fight.js');
@@ -411,6 +424,15 @@ function loadAppWithMocks() {
     renderGraphSVG: suspectGraph.renderGraphSVG,
     buildGraphState: suspectGraph.buildGraphState,
 
+    // --- Som (efeitos são irrelevantes no DOM mock, mas precisam ser funções) ---
+    initSfx: () => {},
+    setSfxEnabled: () => {},
+    isSfxEnabled: () => false,
+    playTypingSound: () => {},
+    playAlertSound: () => {},
+    playSuccessSound: () => {},
+    initPanelResizers: () => {},
+
     // --- Boss Fight (app.js importa nomeadamente de boss-fight.js e ui.js) ---
     getBattle: bossFightModule.getBattle,
     isBossCase: bossFightModule.isBossCase,
@@ -424,16 +446,17 @@ function loadAppWithMocks() {
     isBattleWon: bossFightModule.isBattleWon,
     winBattle: bossFightModule.winBattle,
     elapsedMs: bossFightModule.elapsedMs,
+    bossElapsedMs: bossFightModule.elapsedMs,
     computeBossScore: bossFightModule.computeBossScore,
     computeBossStars: bossFightModule.computeBossStars,
     renderBossBriefing: () => {},
     renderBossRail: () => {},
     updateBossTimerReadout: () => {},
     renderBossHintsBanner: () => {},
-    showBossInvitation: () => {},
+    showBossInvitation: (...args) => { calls.showBossInvitation.push(args); },
     showBossVictoryModal: () => {},
     hideBossVictoryModal: () => {},
-    renderBossFeedback: () => {},
+    ...overrides,
   };
 
   // Remove os stubs automáticos do novo transformESM (const name = 'name'; e
@@ -567,6 +590,7 @@ console.log('\n[3] loadMission oculta timeline, suspeitos e interrogatório para
   assert(elements.get('suspect-section').hidden === false, 'case001: seção suspeitos visível');
   assert(elements.get('graph-section').hidden === false, 'case001: seção grafo visível');
   assert(case001StartBtn === false, 'case001: botão interrogatório oculto (já vencido)');
+  assert(elements.get('btn-next').textContent === 'PRÓXIMA MISSÃO →', 'missão comum restaura o rótulo do CTA compartilhado');
 
   // Troca para case002 (sem GAMEPLAY): seções devem ser ocultadas
   app.selectCase('case002');
@@ -701,6 +725,8 @@ console.log('\n[8] Views e mutacoes concluidas sao restauradas ao recriar o banc
 
 console.log('\n[9] Fluxo de projeto percorre selecao, Etapa 0 e primeira missao');
 let projectFlow;
+let reloadFinalFlow = Promise.resolve();
+let bossValidationFlow = Promise.resolve();
 {
   const { app, state, elements, calls } = loadAppWithMocks();
   app.selectCase('proj-ecommerce');
@@ -819,11 +845,159 @@ console.log('\n[14] Casos com mutações mantêm a sequência obrigatória');
   assert(state.currentLevel === 3, 'sequência avança somente até a próxima missão ainda não concluída');
 }
 
+console.log('\n[15] Confronto final continua acessível ao retomar casos sem suspeitômetro');
+{
+  const { app, state, calls } = loadAppWithMocks();
+  state.currentCase = 'case005';
+  state.completedLevels = Array.from({ length: 14 }, (_, index) => index + 1);
+  state.interrogation = { status: 'active', stepIndex: 1, presentedEvidenceIds: ['anomalia-01'] };
+
+  app.loadMission(14);
+
+  const sidebarConfig = calls.configureSidebarTabs[calls.configureSidebarTabs.length - 1];
+  assert(sidebarConfig.suspects === true, 'aba do confronto permanece disponível sem configuração de suspeitos');
+  assert(sidebarConfig.suspectsLabel === 'CONFRONTO', 'aba recebe um rótulo coerente com o caso');
+  assert(
+    calls.showStartInterrogationButton[calls.showStartInterrogationButton.length - 1] === true,
+    'CTA para retomar o confronto fica visível'
+  );
+}
+
+console.log('\n[16] IDs fictícios não liberam o confronto final');
+{
+  const { app, state, calls } = loadAppWithMocks();
+  state.currentCase = 'case005';
+  state.completedLevels = [14, ...Array.from({ length: 13 }, (_, index) => 100 + index)];
+  state.interrogation = { status: 'locked', stepIndex: 0, presentedEvidenceIds: [] };
+
+  app.loadMission(14);
+
+  assert(state.currentLevel === 1, 'save inválido volta para a primeira missão real pendente');
+  assert(
+    calls.showStartInterrogationButton[calls.showStartInterrogationButton.length - 1] === false,
+    'quantidade de IDs não substitui a conclusão das missões reais'
+  );
+}
+
+console.log('\n[17] Reload após vitória retoma o convite do Boss Fight');
+{
+  const { app, state, calls } = loadAppWithMocks();
+  state.currentCase = 'case005';
+  state.currentLevel = 14;
+  state.completedLevels = Array.from({ length: 14 }, (_, index) => index + 1);
+  state.interrogation = {
+    status: 'won',
+    stepIndex: 4,
+    presentedEvidenceIds: ['anomalia-01', 'anomalia-03', 'anomalia-05', 'anomalia-04'],
+  };
+
+  reloadFinalFlow = app.startGame().then(() => {
+    assert(calls.showBossInvitation.length === 1, 'convite do boss reaparece após restaurar a vitória');
+  });
+}
+
+console.log('\n[18] Validação correta do Boss exibe feedback e libera a próxima etapa');
+{
+  const appSource = readSource('app.js');
+  const uiBindings = [...appSource.matchAll(/import\s*\{([\s\S]*?)\}\s*from\s*['"]\.\/ui\.js['"]/g)]
+    .flatMap(match => match[1].split(','))
+    .map(binding => binding.trim().split(/\s+as\s+/).pop());
+  assert(uiBindings.includes('renderBossFeedback'), 'renderBossFeedback está importado pelo módulo de produção');
+
+  const env = loadAppWithMocks({
+    getEditorValue: () => 'SELECT resultado_correto;',
+    validateBossStep: (sql, step, db, bossState) => ({
+      feedback: {
+        type: 'correct',
+        message: 'Etapa validada.',
+        result: { type: 'ok', columns: ['numero_conta'], rows: [['CC-9999']], rowCount: 1 },
+      },
+      state: { ...bossState, executionAttempts: bossState.executionAttempts + 1 },
+    }),
+  });
+  env.state.currentCase = 'case001';
+  env.state.bossByCase.case001 = {
+    status: 'active',
+    startedAt: new Date().toISOString(),
+    timerElapsedMs: 0,
+    executionAttempts: 0,
+    sqlErrors: 0,
+    completedSteps: [],
+    scoreAwarded: null,
+    completedAt: null,
+  };
+  env.app.loadBossFight('boss-001-1');
+  assert(env.elements.get('sidebar-tabs-nav').hidden === false, 'Boss mantém a barra de Evidências e Dicas acessível');
+  assert(env.elements.get('tabs-nav').hidden === false, 'Boss mantém a navegação entre painéis acessível no mobile');
+
+  const runListener = env.listeners.find(listener => listener.el === 'btn-run' && listener.type === 'click');
+  const nextListener = env.listeners.find(listener => listener.el === 'btn-next' && listener.type === 'click');
+  bossValidationFlow = (async () => {
+    await runListener.fn();
+    assert(env.state.bossByCase.case001.completedSteps.includes('boss-001-1'), 'acerto conclui a primeira etapa do Boss');
+    assert(env.calls.renderBossFeedback.at(-1)?.type === 'correct', 'feedback correto é renderizado sem ReferenceError');
+    assert(env.elements.get('btn-next').hidden === false, 'CTA da próxima etapa aparece após o acerto');
+    assert(env.elements.get('btn-next').textContent === 'PRÓXIMA ETAPA →', 'CTA identifica claramente a próxima etapa do Boss');
+    assert(env.state.currentLevel === 'boss-001-1', 'resultado permanece visível até o jogador avançar');
+
+    nextListener.fn();
+    assert(env.state.currentLevel === 'boss-001-2', 'CTA abre a próxima etapa liberada');
+    assert(env.elements.get('btn-next').hidden === true, 'CTA volta a ficar oculto antes da nova validação');
+
+    const victoryEnv = loadAppWithMocks({
+      getEditorValue: () => 'SELECT etapa_final_correta;',
+      validateBossStep: (sql, step, db, bossState) => ({
+        feedback: { type: 'correct', message: 'Batalha concluída.' },
+        state: { ...bossState, executionAttempts: bossState.executionAttempts + 1 },
+      }),
+    });
+    victoryEnv.state.currentCase = 'case001';
+    victoryEnv.state.bossByCase.case001 = {
+      status: 'active',
+      startedAt: new Date(Date.now() - 1000).toISOString(),
+      timerElapsedMs: 0,
+      executionAttempts: 2,
+      sqlErrors: 0,
+      completedSteps: ['boss-001-1', 'boss-001-2'],
+      scoreAwarded: null,
+      completedAt: null,
+    };
+    victoryEnv.app.loadBossFight('boss-001-3');
+    const victoryRun = victoryEnv.listeners.find(listener => listener.el === 'btn-run' && listener.type === 'click');
+    assert(victoryEnv.app.getBossTimerHandle() !== null, 'cronômetro está ativo durante a etapa final');
+    await victoryRun.fn();
+    assert(victoryEnv.state.bossByCase.case001.status === 'won', 'última etapa encerra o Boss Fight');
+    assert(victoryEnv.app.getBossTimerHandle() === null, 'cronômetro é encerrado imediatamente na vitória');
+    assert(victoryEnv.state.bossByCase.case001.startedAt === null, 'estado vencedor não mantém relógio ativo');
+  })();
+}
+
+console.log('\n[19] Reload restaura mutações concluídas do Boss Fight');
+{
+  const executions = [];
+  const { app, state } = loadAppWithMocks({
+    executeQuery: (sql, db, options) => {
+      executions.push({ sql, options });
+      return { type: 'empty', columns: [], rows: [], rowCount: 0 };
+    },
+  });
+  state.bossByCase.case006 = {
+    status: 'active',
+    completedSteps: ['boss-006-1', 'boss-006-2', 'boss-006-3'],
+  };
+  const restored = app.restoreCompletedBossSteps('case006', { exec: () => [] });
+  assert(restored.join(',') === 'boss-006-1,boss-006-2,boss-006-3', 'etapas mutáveis concluídas são restauradas em ordem');
+  assert(executions.length === 3, 'somente os três efeitos concluídos são reaplicados');
+  assert(executions[0].options.allowDml && executions[0].options.allowDdl, 'UPDATE é restaurado com permissões controladas');
+  assert(executions[1].options.allowDml && executions[1].options.allowDdl, 'INSERT é restaurado com permissões controladas');
+  assert(executions[2].options.allowCreateView === true, 'view do Boss é restaurada com permissão específica');
+}
+
 // ====================================================================
 // Resultado
 // ====================================================================
 
-projectFlow
+Promise.all([projectFlow, reloadFinalFlow, bossValidationFlow])
   .catch(error => {
     console.error(error);
     failed++;

@@ -189,11 +189,16 @@ export function isBattleWon(battle, bossState) {
  */
 export function winBattle(battle, bossState, elapsedMs) {
   const state = normalizeBossState(bossState);
+  const finalElapsedMs = Number.isFinite(elapsedMs) && elapsedMs >= 0
+    ? Math.floor(elapsedMs)
+    : state.timerElapsedMs;
   return {
     ...state,
     status: 'won',
+    startedAt: null,
+    timerElapsedMs: finalElapsedMs,
     completedAt: new Date().toISOString(),
-    scoreAwarded: computeBossScore(battle, elapsedMs, state.sqlErrors),
+    scoreAwarded: computeBossScore(battle, finalElapsedMs, state.sqlErrors),
   };
 }
 

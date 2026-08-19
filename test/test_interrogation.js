@@ -14,7 +14,7 @@ function assert(cond, msg) {
 const code = readSource('interrogation.js');
 const mod = evalModule(transformESM(code), {}, 'interrogation.js');
 const {
-  createInterrogationState, normalizeInterrogationState,
+  createInterrogationState, normalizeInterrogationState, reconcileInterrogationState,
   isInterrogationAvailable, startInterrogation, presentEvidence,
 } = mod;
 
@@ -137,6 +137,87 @@ const wonResult = presentEvidence(finalChallenge, [1, 3, 4, 5, 9, 12], timelineC
 assert(wonResult.accepted === false, 'accepted=false (já vencido)');
 assert(wonResult.completed === true, 'completed=true');
 assert(wonResult.reason === 'already_won', 'reason=already_won');
+
+console.log('\n[18] confrontation — casos avançados usam o mesmo motor até a vitória');
+const confrontation = {
+  ...finalChallenge,
+  type: 'confrontation',
+  requiredMission: 14,
+};
+const confrontationStart = startInterrogation(
+  confrontation,
+  [3, 4, 9, 14],
+  createInterrogationState()
+);
+assert(confrontationStart.started === true, 'confrontation inicia após a missão exigida');
+let confrontationState = confrontationStart.state;
+for (const step of confrontation.steps) {
+  confrontationState = presentEvidence(
+    confrontation,
+    [3, 4, 9, 14],
+    timelineConfig,
+    confrontationState,
+    step.evidenceId
+  ).state;
+}
+assert(confrontationState.status === 'won', 'confrontation chega ao estado won');
+
+console.log('\n[19] reconcileInterrogationState — repara índice impossível de save corrompido');
+const repaired = reconcileInterrogationState(finalChallenge, {
+  status: 'active',
+  stepIndex: 99,
+  presentedEvidenceIds: ['transfer-501', 'id-inválido'],
+});
+assert(repaired.status === 'active', 'save reparado continua ativo');
+assert(repaired.stepIndex === 1, 'índice é reconstruído pelas evidências válidas');
+assert(repaired.presentedEvidenceIds.length === 1, 'IDs estranhos são removidos');
+
+console.log('\n[20] presentEvidence — evidência já usada recebe motivo específico');
+const repeated = presentEvidence(
+  finalChallenge,
+  [1, 3, 4, 5, 9, 12],
+  timelineConfig,
+  correctEv1.state,
+  'transfer-501'
+);
+assert(repeated.accepted === false, 'evidência repetida não é aceita');
+assert(repeated.reason === 'already_presented', 'reason=already_presented');
+
+console.log('\n[21] desafio vazio ou de tipo desconhecido não fica disponível');
+assert(
+  isInterrogationAvailable({ type: 'confrontation', requiredMission: 14, steps: [] }, [14], stateLocked) === false,
+  'confronto sem etapas permanece indisponível'
+);
+assert(
+  isInterrogationAvailable({ ...finalChallenge, type: 'quiz' }, [12], stateLocked) === false,
+  'tipo desconhecido permanece indisponível'
+);
+
+console.log('\n[22] configurações reais — casos 001, 005 e 006 chegam a won');
+for (const [caseId, levelsPath] of [
+  ['case001', 'levels.js'],
+  ['case005', 'cases/case005/levels.js'],
+  ['case006', 'cases/case006/levels.js'],
+]) {
+  const levelsModule = evalModule(transformESM(readSource(levelsPath)), {}, levelsPath);
+  const challenge = levelsModule.GAMEPLAY.finalChallenge;
+  const completedLevels = levelsModule.LEVELS.map(level => level.id);
+  let actualState = startInterrogation(
+    challenge,
+    completedLevels,
+    createInterrogationState()
+  ).state;
+  for (const step of challenge.steps) {
+    actualState = presentEvidence(
+      challenge,
+      completedLevels,
+      levelsModule.GAMEPLAY.timeline,
+      actualState,
+      step.evidenceId
+    ).state;
+  }
+  assert(actualState.status === 'won', `${caseId}: fluxo real termina em won`);
+}
 
 console.log('\n' + '='.repeat(50));
 console.log(`RESULTADO: ${passed} passaram, ${failed} falharam`);

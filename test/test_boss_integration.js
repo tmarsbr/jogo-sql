@@ -69,6 +69,21 @@ async function run() {
     for (const step of battle.steps) {
       const feedback = validator.validateLevel(step.referenceQuery, step, db);
       assert(feedback.type === 'correct', `${caseId}/${step.id}: query canônica aceita (${feedback.type})`);
+
+      if (step.id === 'boss-001-1') {
+        const screenshotQuery = `SELECT c_dest.titular_externo, c_dest.numero_conta, SUM(t.valor_centavos) AS valor_total_desviado
+          FROM transacoes t
+          INNER JOIN contas c_orig ON t.conta_origem_id = c_orig.id
+          INNER JOIN contas c_dest ON t.conta_destino_id = c_dest.id
+          WHERE c_orig.funcionario_id = t.operador_funcionario_id
+            AND c_dest.titular_externo = 'Nexus Consultoria Ltda'
+          GROUP BY c_dest.titular_externo, c_dest.numero_conta;`;
+        const screenshotFeedback = validator.validateLevel(screenshotQuery, step, db);
+        assert(
+          screenshotFeedback.type === 'correct',
+          `${caseId}/${step.id}: coluna numero_conta da consulta do jogador é aceita (${screenshotFeedback.type})`
+        );
+      }
     }
 
     db.close();

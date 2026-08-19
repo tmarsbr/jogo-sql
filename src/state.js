@@ -56,6 +56,15 @@ export const state = {
   /** @type {string|null} token da requisição de dica ativa (caso:missão:timestamp) */
   activeHintRequestToken: null,
 
+  /** @type {{role: 'user'|'model', text: string}[]} conversa do chat de dúvidas na missão atual */
+  hintChat: [],
+
+  /** @type {boolean} pergunta do chat em andamento */
+  chatRequestInFlight: false,
+
+  /** @type {string|null} token da pergunta de chat ativa (caso:missão:timestamp) */
+  activeChatRequestToken: null,
+
   /** @type {string[]} ordem escolhida pelo jogador para a linha do tempo */
   timelineOrder: [],
 

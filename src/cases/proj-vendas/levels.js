@@ -2,9 +2,9 @@
  * levels.js — Missões do Projeto 07: Desempenho de Vendas
  */
 
-const mission = (id, title, concept, objective, tables, expectedColumns, referenceQuery, requiredConcepts, hints, evidence, explanation, courseRefs) => ({
+const mission = (id, title, concept, objective, tables, expectedColumns, referenceQuery, requiredConcepts, hints, evidence, explanation, courseRefs, requirements = []) => ({
   id, title, concept, briefing: `Análise Comercial e Performance de Vendas. ${objective}`,
-  objective, tables, expectedColumns, referenceQuery, requiredConcepts, hints, evidence, explanation, courseRefs,
+  objective, tables, expectedColumns, referenceQuery, requiredConcepts, hints, evidence, explanation, courseRefs, requirements,
 });
 
 export const CASE_INTRO = {
@@ -165,7 +165,11 @@ export const LEVELS = [
     ['Crie uma CTE com o total por região.', 'Junte regiões, vendedores e vendas antes de agrupar.', 'Ordene por faturamento_total_centavos DESC e aplique LIMIT 1.'],
     'O Sudeste foi a região campeã, com R$ 339.000,00 faturados no trimestre.',
     'CTEs simplificam consultas de ranking e relatórios gerenciais executivos.',
-    ['cte-subqueries', 'aggregation-groupby']
+    ['cte-subqueries', 'aggregation-groupby'],
+    [
+      'Devolva exatamente 1 linha: apenas a região líder, não o ranking completo.',
+      'Mantenha faturamento_total_centavos em centavos (número inteiro).',
+    ]
   ),
   {
     ...mission(

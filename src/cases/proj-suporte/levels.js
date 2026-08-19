@@ -2,9 +2,9 @@
  * levels.js — Missões do Projeto 14: Suporte ao Cliente e Help Desk
  */
 
-const mission = (id, title, concept, objective, tables, expectedColumns, referenceQuery, requiredConcepts, hints, evidence, explanation, courseRefs) => ({
+const mission = (id, title, concept, objective, tables, expectedColumns, referenceQuery, requiredConcepts, hints, evidence, explanation, courseRefs, requirements = []) => ({
   id, title, concept, briefing: `Análise de Eficiência e CSAT no Atendimento ao Cliente. ${objective}`,
-  objective, tables, expectedColumns, referenceQuery, requiredConcepts, hints, evidence, explanation, courseRefs,
+  objective, tables, expectedColumns, referenceQuery, requiredConcepts, hints, evidence, explanation, courseRefs, requirements,
 });
 
 export const CASE_INTRO = {
@@ -123,7 +123,12 @@ export const LEVELS = [
     ['Agrupe por atendente com HAVING COUNT(c.id) >= 2.', 'Ordene por media_csat DESC.', 'Aplique LIMIT 2.'],
     'Diego Martins e Mariana Costa lideram a preferência e elogios dos usuários.',
     'HAVING associado a LIMIT garante relevância estatística na premiação de operadores.',
-    ['having-where-orderby-like', 'aggregation-groupby']
+    ['having-where-orderby-like', 'aggregation-groupby'],
+    [
+      'Considere apenas atendentes com 2 ou mais avaliações de CSAT (filtro no HAVING).',
+      'Exiba media_csat arredondada para 2 casas decimais: ROUND(AVG(...), 2).',
+      'Devolva exatamente 2 linhas, as de maior média.',
+    ]
   ),
   mission(
     7,
@@ -179,7 +184,12 @@ export const LEVELS = [
     ['Crie CTEs para agregar tickets e CSAT por atendente, arredondando ambas as médias para 2 casas.', 'Junte atendentes e departamentos com as CTEs usando LEFT JOIN.', 'Trate nulos com COALESCE e ordene descendentemente.'],
     'O relatório executivo de atendimento ao cliente foi concluído com sucesso.',
     'CTEs pré-agregadas com COALESCE entregam painéis de gestão robustos e auditáveis.',
-    ['cte-subqueries', 'joins-inner-left', 'aggregation-groupby']
+    ['cte-subqueries', 'joins-inner-left', 'aggregation-groupby', 'null-handling'],
+    [
+      'Liste todos os atendentes, inclusive quem não resolveu tickets nem recebeu avaliação.',
+      'Sem tickets resolvidos ou sem CSAT, as três colunas numéricas exibem 0 — nunca NULL.',
+      'total_resolvidos conta apenas tickets com status "resolvido".',
+    ]
   ),
 ];
 

@@ -176,15 +176,39 @@
 
     <!-- COLUNA 0: Rail de Missões -->
     <nav id="mission-rail" class="mission-rail" aria-label="Navegação rápida de missões">
+      <button
+        id="btn-rail-toggle-briefing"
+        type="button"
+        class="rail-toggle-briefing-btn"
+        title="Recolher inquérito (Ctrl+B)"
+        aria-label="Recolher inquérito"
+        aria-expanded="true"
+        aria-controls="panel-briefing"
+      >
+        <span class="rail-toggle-icon" aria-hidden="true">◀</span>
+      </button>
       <span class="rail-header-label">MISSÕES</span>
-      <div id="rail-buttons-container" style="display: flex; flex-direction: column; gap: 6px; width: 100%; align-items: center;"></div>
+      <div id="rail-buttons-container" class="rail-buttons-container"></div>
     </nav>
 
     <!-- COLUNA 1: Briefing do Inquérito -->
     <section id="panel-briefing" class="panel panel-briefing" aria-label="Briefing do cenário">
       <div class="panel-header-bar">
-        <span id="briefing-panel-title" class="panel-header-title">INQUÉRITO</span>
-        <span id="mission-num-badge" class="panel-header-sub">MISSÃO 01/12</span>
+        <div class="panel-header-info">
+          <span id="briefing-panel-title" class="panel-header-title">INQUÉRITO</span>
+          <span id="mission-num-badge" class="panel-header-sub">MISSÃO 01/12</span>
+        </div>
+        <button
+          id="btn-collapse-briefing"
+          type="button"
+          class="panel-collapse-btn"
+          title="Recolher inquérito (Ctrl+B)"
+          aria-label="Recolher inquérito"
+          aria-expanded="true"
+          aria-controls="panel-briefing"
+        >
+          <span class="collapse-icon" aria-hidden="true">◀</span>
+        </button>
       </div>
       <div class="panel-body-scroll">
         <div id="briefing-content">
@@ -199,13 +223,27 @@
       </div>
     </section>
 
+    <div
+      class="panel-resizer"
+      data-panel-resizer="briefing"
+      role="separator"
+      aria-label="Ajustar largura do painel de missões"
+      aria-orientation="vertical"
+      aria-controls="panel-briefing panel-editor"
+      aria-valuemin="240"
+      aria-valuemax="520"
+      aria-valuenow="320"
+      tabindex="0"
+      title="Arraste para ajustar · use as setas no teclado · clique duplo para restaurar"
+    ></div>
+
     <!-- COLUNA 2: Console Forense / Editor SQL -->
     <section id="panel-editor" class="panel panel-editor" aria-label="Console Forense">
       <div class="editor-header-bar">
         <span id="editor-panel-title" class="panel-header-title">CONSOLE FORENSE</span>
         <div class="editor-header-actions">
           <span class="shortcut-hint">CTRL+ENTER EXECUTA</span>
-          <button id="btn-er" type="button" class="btn btn-er">DIAGRAMA ER</button>
+          <button id="btn-toggle-briefing" type="button" class="btn btn-secondary btn-toggle-briefing" style="font-size: 9.5px; padding: 7px 11px;" title="Alternar inquérito (Ctrl+B)" aria-expanded="true" aria-controls="panel-briefing">📖 INQUÉRITO</button>
           <button id="btn-sandbox" type="button" class="btn btn-secondary" style="font-size: 9.5px; padding: 7px 11px;">SANDBOX</button>
           <button id="btn-mission" type="button" class="btn btn-secondary" style="font-size: 9.5px; padding: 7px 11px;" hidden>VOLTAR ÀS MISSÕES</button>
           <button id="btn-schema" type="button" class="btn btn-secondary" style="font-size: 9.5px; padding: 7px 11px;" hidden>MOSTRAR ESQUEMA</button>
@@ -250,10 +288,25 @@
       </div>
     </section>
 
+    <div
+      class="panel-resizer"
+      data-panel-resizer="sidebar"
+      role="separator"
+      aria-label="Ajustar largura do painel investigativo"
+      aria-orientation="vertical"
+      aria-controls="panel-editor panel-sidebar"
+      aria-valuemin="280"
+      aria-valuemax="760"
+      aria-valuenow="340"
+      tabindex="0"
+      title="Arraste para ajustar · use as setas no teclado · clique duplo para restaurar"
+    ></div>
+
     <!-- COLUNA 3: Painel Investigativo (Abas) -->
     <aside id="panel-sidebar" class="panel panel-sidebar" aria-label="Painel Investigativo">
       <nav id="sidebar-tabs-nav" class="sidebar-tabs-nav" aria-label="Abas do Painel Investigativo" role="tablist">
         <button id="sidebar-tab-lesson" type="button" class="sidebar-tab-btn active" data-sidebar-tab="lesson" role="tab" aria-selected="true" aria-controls="sidebar-pane-lesson">CURSO</button>
+        <button id="sidebar-tab-diagram" type="button" class="sidebar-tab-btn" data-sidebar-tab="diagram" role="tab" aria-selected="false" aria-controls="sidebar-pane-diagram" tabindex="-1">DIAGRAMA</button>
         <button id="sidebar-tab-evidence" type="button" class="sidebar-tab-btn" data-sidebar-tab="evidence" role="tab" aria-selected="false" aria-controls="sidebar-pane-evidence" tabindex="-1">EVIDÊNCIAS</button>
         <button id="sidebar-tab-graph" type="button" class="sidebar-tab-btn" data-sidebar-tab="graph" role="tab" aria-selected="false" aria-controls="sidebar-pane-graph" tabindex="-1">REDE</button>
         <button id="sidebar-tab-timeline" type="button" class="sidebar-tab-btn" data-sidebar-tab="timeline" role="tab" aria-selected="false" aria-controls="sidebar-pane-timeline" tabindex="-1">TEMPO</button>
@@ -266,6 +319,29 @@
         <div id="sidebar-pane-lesson" class="sidebar-tab-pane active" role="tabpanel" aria-labelledby="sidebar-tab-lesson">
           <div id="lesson-display">
             <p class="placeholder-text">A aula aparecerá aqui ao carregar a missão.</p>
+          </div>
+        </div>
+
+        <!-- Tab 0b: Diagrama ER -->
+        <div id="sidebar-pane-diagram" class="sidebar-tab-pane" role="tabpanel" aria-labelledby="sidebar-tab-diagram">
+          <div class="sidebar-er-header">
+            <div class="sidebar-er-title-wrap">
+              <span class="blip-dot" style="background: var(--accent-purple); box-shadow: 0 0 6px var(--accent-purple);"></span>
+              <span class="sidebar-er-title">DIAGRAMA ER · MODELO RELACIONAL</span>
+            </div>
+            <div class="sidebar-er-actions">
+              <button id="btn-er-fit" type="button" class="btn btn-secondary" style="font-size: 8.5px; padding: 4px 7px;" title="Ajustar diagrama à largura do painel">AJUSTAR</button>
+              <button id="btn-er" type="button" class="btn btn-secondary btn-er-expand" style="font-size: 8.5px; padding: 4px 7px;" title="Expandir diagrama em tela cheia (modal)">EXPANDIR ⛶</button>
+            </div>
+          </div>
+          <p class="sidebar-er-desc">Estrutura de tabelas, colunas, chaves e relacionamentos atualizados em tempo real conforme você constrói ou consulta o banco.</p>
+          <div id="sidebar-er-diagram-content" class="sidebar-er-diagram-container">
+            <p class="placeholder-text">Carregando diagrama…</p>
+          </div>
+          <div class="er-legend" style="margin-top: 12px; font-size: 9px; justify-content: center; gap: 14px;">
+            <span class="er-legend-item"><span class="er-legend-dot pk"></span> PK (CHAVE PRIMÁRIA)</span>
+            <span class="er-legend-item"><span class="er-legend-dot fk"></span> FK (CHAVE ESTRANGEIRA)</span>
+            <span class="er-legend-item"><span class="er-legend-dot relation"></span> TABELA</span>
           </div>
         </div>
 
@@ -319,6 +395,22 @@
           </div>
           <button id="btn-hint" type="button" class="btn btn-secondary" style="width: 100%; margin-top: 8px; font-size: 10px;" disabled>SOLICITAR DICA (3 RESTANTES)</button>
           <p class="hint-notice-sub">Cada dica reduz as estrelas da missão. Máximo de 3 por missão.</p>
+
+          <div id="hint-chat" class="hint-chat" hidden>
+            <div class="hint-chat-header">
+              <span class="blip-dot"></span>
+              <span>CANAL DIRETO · PERGUNTE À IA</span>
+            </div>
+            <div id="hint-chat-log" class="hint-chat-log" role="log" aria-live="polite" aria-label="Conversa com a IA forense">
+              <p class="placeholder-text">Escreva sua dúvida sobre o desafio — a IA responde sem entregar a consulta pronta.</p>
+            </div>
+            <form id="hint-chat-form" class="hint-chat-form" autocomplete="off">
+              <label for="hint-chat-input" class="sr-only">Escreva sua dúvida para a IA</label>
+              <textarea id="hint-chat-input" class="hint-chat-input" rows="2" maxlength="500" placeholder="Ex.: por que preciso de GROUP BY nesta consulta?"></textarea>
+              <button id="btn-hint-chat-send" type="submit" class="btn btn-secondary hint-chat-send">ENVIAR</button>
+            </form>
+            <p class="hint-chat-note">As perguntas do chat não reduzem estrelas. ENTER envia · SHIFT+ENTER quebra linha.</p>
+          </div>
         </div>
 
         <!-- Compatibilidade de progresso -->
@@ -416,6 +508,6 @@
     </div>
   </div>
 
-  <script type="module" src="src/app.js"></script>
+  <script type="module" src="src/app.js?v=20260819-8"></script>
 </body>
 </html>

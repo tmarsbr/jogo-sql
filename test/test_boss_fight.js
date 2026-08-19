@@ -122,6 +122,9 @@ const won = winBattle(battle006, s, 240000);
 assert(won.status === 'won', 'status final é won');
 assert(won.completedAt !== null, 'completedAt definido na vitória');
 assert(typeof won.scoreAwarded === 'number' && won.scoreAwarded > 1000, 'scoreAwarded calculado (> base, pois venceu em 4 min)');
+assert(won.startedAt === null, 'cronômetro ativo é encerrado na vitória');
+assert(won.timerElapsedMs === 240000, 'tempo final fica congelado no estado persistido');
+assert(elapsedMs(battle006, won) === 240000, 'tempo não continua crescendo depois da vitória');
 
 const wonRestart = startBattle(battle006, won);
 assert(wonRestart.reason === 'already_won', 'battle já vencida não pode ser reiniciada');

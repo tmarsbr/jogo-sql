@@ -2,9 +2,9 @@
  * levels.js — Missões do Projeto 08: Análise de Marketing
  */
 
-const mission = (id, title, concept, objective, tables, expectedColumns, referenceQuery, requiredConcepts, hints, evidence, explanation, courseRefs) => ({
+const mission = (id, title, concept, objective, tables, expectedColumns, referenceQuery, requiredConcepts, hints, evidence, explanation, courseRefs, requirements = []) => ({
   id, title, concept, briefing: `Análise de Aquisição, Funil e ROI de Marketing. ${objective}`,
-  objective, tables, expectedColumns, referenceQuery, requiredConcepts, hints, evidence, explanation, courseRefs,
+  objective, tables, expectedColumns, referenceQuery, requiredConcepts, hints, evidence, explanation, courseRefs, requirements,
 });
 
 export const CASE_INTRO = {
@@ -68,7 +68,12 @@ export const LEVELS = [
     ['Parta de canais e use LEFT JOIN até custos_diarios.', 'Use COALESCE(SUM(cd.custo_centavos), 0) para canais sem mídia paga.', 'Agrupe por canal e ordene pelo custo total.'],
     'Google Search e LinkedIn Ads concentram os maiores investimentos financeiros.',
     'JOINs múltiplos consolidam custos operacionais por nível hierárquico.',
-    ['joins-inner-left', 'aggregation-groupby']
+    ['joins-inner-left', 'aggregation-groupby', 'null-handling'],
+    [
+      'Inclua todos os canais cadastrados, mesmo os que não têm campanha ou custo registrado.',
+      'Canais sem investimento devem exibir 0 em custo_total_centavos — nunca NULL.',
+      'Mantenha os valores em centavos (números inteiros); não converta para reais.',
+    ]
   ),
   mission(
     3,
@@ -180,7 +185,12 @@ export const LEVELS = [
     ['Crie CTEs separadas para agregar leads e conversões por campanha.', 'Junte campanhas, canais e as duas CTEs com LEFT JOIN.', 'Trate possíveis nulos com COALESCE.'],
     'O relatório de atribuição de funil está completo e validado para a diretoria.',
     'A união de CTEs pré-agregadas com COALESCE garante relatórios robustos e livres de distorção.',
-    ['cte-subqueries', 'joins-inner-left', 'aggregation-groupby']
+    ['cte-subqueries', 'joins-inner-left', 'aggregation-groupby', 'null-handling'],
+    [
+      'Liste todas as campanhas, inclusive as que ainda não capturaram leads nem geraram conversões.',
+      'Campanhas sem leads, sem conversões ou sem receita devem exibir 0 nessas colunas — nunca NULL.',
+      'Mantenha a receita em centavos (números inteiros).',
+    ]
   ),
 ];
 

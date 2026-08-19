@@ -2,9 +2,9 @@
  * levels.js — Missões do Projeto 11: Gestão Educacional
  */
 
-const mission = (id, title, concept, objective, tables, expectedColumns, referenceQuery, requiredConcepts, hints, evidence, explanation, courseRefs) => ({
+const mission = (id, title, concept, objective, tables, expectedColumns, referenceQuery, requiredConcepts, hints, evidence, explanation, courseRefs, requirements = []) => ({
   id, title, concept, briefing: `Análise de Desempenho e Indicadores Acadêmicos. ${objective}`,
-  objective, tables, expectedColumns, referenceQuery, requiredConcepts, hints, evidence, explanation, courseRefs,
+  objective, tables, expectedColumns, referenceQuery, requiredConcepts, hints, evidence, explanation, courseRefs, requirements,
 });
 
 export const CASE_INTRO = {
@@ -68,7 +68,7 @@ export const LEVELS = [
     ['Parta de disciplinas e use LEFT JOIN para manter matérias sem matrículas.', "Use SUM(CASE WHEN tm.status LIKE 'reprovado%' THEN 1 ELSE 0 END).", 'Agrupe por disciplina e ordene por total_reprovados DESC.'],
     'Cálculo Diferencial e Integral I soma 3 reprovações; Algoritmos e Estatística registram 1 cada, e Matemática Financeira aparece com zero matrículas.',
     'Somas condicionais com LIKE filtram subgrupos categóricos.',
-    ['case-when', 'aggregation-groupby', 'having-where-orderby-like']
+    ['case-when', 'aggregation-groupby', 'having-where-orderby-like', 'joins-inner-left']
   ),
   mission(
     3,
@@ -96,7 +96,12 @@ export const LEVELS = [
     ['Calcule a média com AVG(tm.nota_final).', 'Aplique HAVING AVG(tm.nota_final) < 6.0.', 'Ordene por media_nota ASC.'],
     'Apenas Cálculo Diferencial e Integral I opera abaixo da nota de corte.',
     'HAVING isola matérias críticas para alocação de tutores e monitores.',
-    ['having-where-orderby-like', 'aggregation-groupby']
+    ['having-where-orderby-like', 'aggregation-groupby'],
+    [
+      'Ignore as matrículas com nota_final NULL (ainda não avaliadas).',
+      'Exiba media_nota arredondada para 1 casa decimal: ROUND(AVG(...), 1).',
+      'O corte "< 6.0" incide sobre a média sem arredondamento, dentro do HAVING.',
+    ]
   ),
   mission(
     5,
@@ -124,7 +129,12 @@ export const LEVELS = [
     ['Crie uma CTE com a média por aluno.', 'Filtre WHERE media_individual > (SELECT AVG(nota_final) FROM turmas_matriculas).', 'Ordene descendentemente.'],
     'Helena, Caio, Fernanda, Enzo e Guilherme ficaram acima da média geral de notas.',
     'Comparar coeficientes individuais com a média global identifica discentes de destaque.',
-    ['cte-subqueries', 'aggregation-groupby']
+    ['cte-subqueries', 'aggregation-groupby'],
+    [
+      'Ignore as matrículas com nota_final NULL ao calcular a média de cada aluno.',
+      'Exiba media_individual arredondada para 2 casas decimais: ROUND(AVG(...), 2).',
+      'A média geral de comparação usa todos os registros de notas, sem arredondamento.',
+    ]
   ),
   mission(
     7,
@@ -166,7 +176,12 @@ export const LEVELS = [
     ['Crie uma CTE que junte professores, disciplinas e turmas_matriculas.', 'Na CTE, agrupe pelo professor e calcule COUNT e AVG.', 'Consulte a CTE e ordene por media_geral_notas DESC.'],
     'A Dra. Denise Alcantara lidera o aproveitamento com média 9.0 em UI/UX.',
     'Agregações no nível docente monitoram a consistência das avaliações pedagógicas.',
-    ['aggregation-groupby', 'joins-inner-left']
+    ['aggregation-groupby', 'joins-inner-left', 'cte-subqueries'],
+    [
+      'Ignore as matrículas com nota_final NULL: elas não contam nem na média nem em total_avaliados.',
+      'Exiba media_geral_notas arredondada para 2 casas decimais: ROUND(AVG(...), 2).',
+      'total_avaliados conta matrículas avaliadas, não alunos distintos.',
+    ]
   ),
   {
     ...mission(
@@ -181,7 +196,12 @@ export const LEVELS = [
       ['Crie a view com CREATE VIEW vw_desempenho_pedagogico_disciplinas AS SELECT ...', 'Use LEFT JOIN com turmas_matriculas para preservar disciplinas sem matrículas.', 'Agrupe por d.id, d.codigo, d.nome, p.nome.'],
       'A view de acompanhamento pedagógico está operacional para a reitoria.',
       'Views acadêmicas padronizam métricas de qualidade de ensino para órgãos regulatórios.',
-      ['views', 'joins-inner-left', 'aggregation-groupby']
+      ['views', 'joins-inner-left', 'aggregation-groupby'],
+      [
+        'Toda disciplina cadastrada aparece na view, mesmo sem nenhuma matrícula (LEFT JOIN).',
+        'Disciplina sem matrícula fica com total_matriculas = 0 e media_notas NULL — não force 0 aqui.',
+        'Exiba media_notas arredondada para 1 casa decimal: ROUND(AVG(...), 1).',
+      ]
     ),
     executionMode: 'create_view',
     viewName: 'vw_desempenho_pedagogico_disciplinas',

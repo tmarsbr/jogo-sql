@@ -35,6 +35,38 @@ async function run() {
   const executor = loadExecutor();
   const validator = loadValidator(executor.executeQuery);
   const courseContentIds = new Set(loadCourseContent().COURSE_CONTENT.map(item => item.id));
+  // Conceito cobrado pelo validador → aula que o ensina. Uma missão que exige
+  // COALESCE mas só linka a aula de JOIN empurra o jogador para um conteúdo que
+  // não responde a pergunta dela.
+  const conceptLessons = {
+    'coalesce': 'null-handling',
+    'ifnull': 'null-handling',
+    'is null': 'null-handling',
+    'left join': 'joins-inner-left',
+    'right join': 'joins-right-full',
+    'full join': 'joins-right-full',
+    'case': 'case-when',
+    'with': 'cte-subqueries',
+    'subquery': 'cte-subqueries',
+    'having': 'having-where-orderby-like',
+    'create view': 'views',
+    'create trigger': 'triggers',
+    'create index': 'indexes-optimization',
+    'insert': 'dml-insert',
+    'over': 'window-functions',
+    'row_number': 'window-functions',
+    'dense_rank': 'window-functions',
+    'rank': 'window-functions',
+    'lag': 'window-functions',
+    'lead': 'window-functions',
+    'ntile': 'window-functions',
+    'trim': 'string-functions',
+    'replace': 'string-functions',
+    'substr': 'string-functions',
+    'upper': 'string-functions',
+    'lower': 'string-functions',
+    'json_extract': 'json-functions',
+  };
   const windowRequiredConcepts = new Set([
     'over',
     'row_number',
@@ -103,8 +135,18 @@ async function run() {
     assert(levels.DATABASE_ANALYSIS.decisions.length >= 3, `${caseId} documenta decisões de design`);
     assert(levels.DATABASE_ANALYSIS.checkpoints.length >= 2, `${caseId} inclui missões conceituais`);
     if (levels.GAMEPLAY?.finalChallenge) {
+      const finalChallenge = levels.GAMEPLAY.finalChallenge;
       const timelineIds = new Set((levels.GAMEPLAY.timeline?.events || []).map(event => event.id));
-      const challengeEvidenceIds = levels.GAMEPLAY.finalChallenge.steps.map(step => step.evidenceId);
+      const challengeEvidenceIds = finalChallenge.steps.map(step => step.evidenceId);
+      assert(
+        ['interrogation', 'confrontation'].includes(finalChallenge.type),
+        `${caseId}: desafio final usa um tipo suportado pelo motor`
+      );
+      assert(finalChallenge.steps.length > 0, `${caseId}: desafio final possui etapas`);
+      assert(
+        levels.LEVELS.some(level => level.id === finalChallenge.requiredMission),
+        `${caseId}: missão exigida pelo desafio final existe`
+      );
       assert(challengeEvidenceIds.every(id => timelineIds.has(id)), `${caseId}: desafio final usa somente evidências existentes`);
       assert(new Set(challengeEvidenceIds).size === challengeEvidenceIds.length, `${caseId}: cada etapa do desafio exige uma evidência própria`);
     }
@@ -116,6 +158,57 @@ async function run() {
       const missingCourseRefs = courseRefs.filter(ref => !courseContentIds.has(ref));
 
       assert(level.hints.length === 3, `Missão ${level.id}: possui exatamente 3 dicas locais`);
+
+      // Contrato de entrega: o validador cobra aliases exatos e regras que não
+      // aparecem no resultado (NULL → 0, arredondamento, corte por LIMIT).
+      // Se não estiverem no enunciado ou em requirements, o jogador só descobre
+      // sendo reprovado — e lê a reprovação como bug da plataforma.
+      assert(
+        Array.isArray(level.expectedColumns) && level.expectedColumns.length > 0,
+        `Missão ${level.id}: declara as colunas exigidas pelo validador`
+      );
+      assert(
+        !level.requirements || Array.isArray(level.requirements),
+        `Missão ${level.id}: requirements, quando presente, é uma lista`
+      );
+
+      const referenceQuery = String(level.referenceQuery || '');
+      const spec = [level.objective, level.briefing, ...(level.requirements || [])]
+        .join(' ')
+        .toLowerCase()
+        .normalize('NFD')
+        .replace(/[̀-ͯ]/g, '');
+
+      if (/\b(coalesce|ifnull)\s*\(/i.test(referenceQuery)) {
+        assert(
+          /(zero|\b0\b|nulo|null)/.test(spec),
+          `Missão ${level.id}: enunciado explica o tratamento de valores ausentes (COALESCE)`
+        );
+      }
+
+      const roundedDecimals = referenceQuery.match(/round\s*\([\s\S]*?,\s*(\d+)\s*\)/i);
+      if (roundedDecimals) {
+        assert(
+          /(arredond|casas? decimai|round)/.test(spec),
+          `Missão ${level.id}: enunciado explica o arredondamento para ${roundedDecimals[1]} casa(s)`
+        );
+      }
+
+      const uncoveredConcepts = requiredConcepts
+        .filter(concept => conceptLessons[concept] && !courseRefs.includes(conceptLessons[concept]))
+        .map(concept => `${concept} → ${conceptLessons[concept]}`);
+      assert(
+        uncoveredConcepts.length === 0,
+        `Missão ${level.id}: cada técnica obrigatória tem aula vinculada${uncoveredConcepts.length > 0 ? ` (falta ${uncoveredConcepts.join(', ')})` : ''}`
+      );
+
+      const limitRows = referenceQuery.match(/limit\s+(\d+)/i);
+      if (limitRows) {
+        assert(
+          new RegExp(`(^|[^0-9])${limitRows[1]}([^0-9]|$)`).test(spec),
+          `Missão ${level.id}: enunciado informa que devem voltar ${limitRows[1]} linha(s)`
+        );
+      }
       assert(
         courseRefs.length > 0 && missingCourseRefs.length === 0,
         `Missão ${level.id}: courseRefs apontam para conteúdos existentes${missingCourseRefs.length > 0 ? ` (${missingCourseRefs.join(', ')})` : ''}`

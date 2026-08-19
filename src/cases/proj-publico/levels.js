@@ -2,9 +2,9 @@
  * levels.js — Missões do Projeto 15: Dados Públicos e Municípios
  */
 
-const mission = (id, title, concept, objective, tables, expectedColumns, referenceQuery, requiredConcepts, hints, evidence, explanation, courseRefs) => ({
+const mission = (id, title, concept, objective, tables, expectedColumns, referenceQuery, requiredConcepts, hints, evidence, explanation, courseRefs, requirements = []) => ({
   id, title, concept, briefing: `Análise Orçamentária e Fiscal de Dados Públicos Municipais. ${objective}`,
-  objective, tables, expectedColumns, referenceQuery, requiredConcepts, hints, evidence, explanation, courseRefs,
+  objective, tables, expectedColumns, referenceQuery, requiredConcepts, hints, evidence, explanation, courseRefs, requirements,
 });
 
 export const CASE_INTRO = {
@@ -165,7 +165,7 @@ export const LEVELS = [
     ['Crie uma CTE que agregue os valores empenhados e liquidados por estado.', 'No SELECT principal, calcule a razão entre total_liquidado e total_empenhado multiplicada por 100.', 'Arredonde para uma casa decimal e ordene por taxa_liquidacao_pct DESC.'],
     'Paraná (96,8%) e Minas Gerais (96,1%) superaram 96% de efetividade de liquidação.',
     'Taxas de liquidação revelam a agilidade dos órgãos na conclusão de obras e serviços.',
-    ['aggregation-groupby', 'joins-inner-left']
+    ['aggregation-groupby', 'joins-inner-left', 'cte-subqueries']
   ),
   {
     ...mission(

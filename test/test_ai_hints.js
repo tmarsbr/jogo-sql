@@ -176,11 +176,11 @@ function mockFetchOk(responseData) {
 
 const r1 = await requestAiHint(
   { hintIndex: 1, mission: { title: 'Test' } },
-  { fetchImpl: mockFetchOk({ hint: 'Use WHERE para filtrar.', source: 'ollama' }) }
+  { fetchImpl: mockFetchOk({ hint: 'Use WHERE para filtrar.', source: 'gemini' }) }
 );
 assert(r1.ok === true, 'sucesso -> ok=true');
 assert(r1.hint === 'Use WHERE para filtrar.', 'hint recebido');
-assert(r1.source === 'ollama', 'source=ollama');
+assert(r1.source === 'gemini', 'source=gemini');
 
 console.log('\n[16] requestAiHint — JSON inválido');
 function mockFetchBadJson() {
@@ -255,13 +255,13 @@ const levelHints = ['Dica local 1', 'Dica local 2', 'Dica local 3'];
 // Dica 1: IA sucesso
 const aiResult1 = await requestAiHint(
   { hintIndex: 1 },
-  { fetchImpl: mockFetchOk({ hint: 'Comece identificando as colunas.', source: 'ollama' }) }
+  { fetchImpl: mockFetchOk({ hint: 'Comece identificando as colunas.', source: 'gemini' }) }
 );
 if (aiResult1.ok) {
-  hintsRevealed.push({ source: 'ollama', text: aiResult1.hint });
+  hintsRevealed.push({ source: 'gemini', text: aiResult1.hint });
 }
 assert(hintsRevealed.length === 1, '1 dica revelada após IA');
-assert(hintsRevealed[0].source === 'ollama', 'source=ollama');
+assert(hintsRevealed[0].source === 'gemini', 'source=gemini');
 
 // Dica 2: IA falha (503), fallback local
 const aiResult2 = await requestAiHint(
@@ -305,7 +305,7 @@ const currentMission = 2;
 
 const lateResult = await requestAiHint(
   { hintIndex: 1, mission: { title: 'Missão 1' } },
-  { fetchImpl: mockFetchOk({ hint: 'Dica para missão 1.', source: 'ollama' }) }
+  { fetchImpl: mockFetchOk({ hint: 'Dica para missão 1.', source: 'gemini' }) }
 );
 
 // A resposta deve ser descartada se a missão mudou

@@ -36,6 +36,11 @@ const dom = {
   resultsContainer: null,
   progressDisplay: null,
   hintsDisplay: null,
+  hintChat: null,
+  hintChatLog: null,
+  hintChatForm: null,
+  hintChatInput: null,
+  btnHintChatSend: null,
   evidenceDisplay: null,
   tabsNav: null,
   timelineSection: null,
@@ -73,6 +78,9 @@ export function initDOM() {
   dom.headerCaseTag = $('#header-case-tag');
   dom.headerBadgeTag = $('#header-badge-tag');
   dom.missionNumBadge = $('#mission-num-badge');
+  dom.btnRailToggleBriefing = $('#btn-rail-toggle-briefing');
+  dom.btnCollapseBriefing = $('#btn-collapse-briefing');
+  dom.btnToggleBriefing = $('#btn-toggle-briefing');
   dom.briefingContent = $('#briefing-content');
   dom.schemaContent = $('#schema-content');
   dom.sqlEditor = $('#sql-editor');
@@ -84,6 +92,11 @@ export function initDOM() {
   dom.resultsContainer = $('#results-container');
   dom.progressDisplay = $('#progress-display');
   dom.hintsDisplay = $('#hints-display');
+  dom.hintChat = $('#hint-chat');
+  dom.hintChatLog = $('#hint-chat-log');
+  dom.hintChatForm = $('#hint-chat-form');
+  dom.hintChatInput = $('#hint-chat-input');
+  dom.btnHintChatSend = $('#btn-hint-chat-send');
   dom.evidenceDisplay = $('#evidence-display');
   dom.lessonDisplay = $('#lesson-display');
   dom.tabsNav = $('#tabs-nav');
@@ -321,6 +334,31 @@ export function setLesson(html) {
  * @param {object} level dados da missão
  * @param {object[]} [courseItems] itens de conteúdo do curso relacionados
  */
+export function buildMissionContract(level) {
+  if (!level) return '';
+  const rows = [];
+  if (level.executionMode === 'create_view' && level.viewName) {
+    rows.push(`<li><strong>VIEW:</strong> <code>${escapeHtml(level.viewName)}</code></li>`);
+  }
+  if (Array.isArray(level.expectedColumns) && level.expectedColumns.length > 0) {
+    rows.push(`<li><strong>COLUNAS:</strong> ${level.expectedColumns.map(c => `<code>${escapeHtml(c)}</code>`).join(', ')}</li>`);
+  }
+  if (Array.isArray(level.requiredConcepts) && level.requiredConcepts.length > 0) {
+    rows.push(`<li><strong>TÉCNICAS:</strong> ${level.requiredConcepts.map(c => `<code>${escapeHtml(c.toUpperCase())}</code>`).join(', ')}</li>`);
+  }
+  if (Array.isArray(level.requirements) && level.requirements.length > 0) {
+    rows.push(`<li><strong>REGRAS:</strong> ${level.requirements.map(r => escapeHtml(r)).join('; ')}</li>`);
+  }
+  if (rows.length === 0) return '';
+  return `
+    <div class="mission-contract">
+      <strong>SAÍDA ESPERADA</strong>
+      <p class="mission-contract-lead">O validador automatizado espera exatamente esta assinatura:</p>
+      <ul>${rows.join('')}</ul>
+    </div>
+  `;
+}
+
 export function renderMission(level, courseItems, lessonsRead = []) {
   if (!dom.briefingContent) return;
   let html = `
@@ -350,6 +388,7 @@ export function renderMission(level, courseItems, lessonsRead = []) {
       </div>`;
   }
 
+  html += buildMissionContract(level);
   html += '</div>';
   dom.briefingContent.innerHTML = html;
 }
@@ -408,6 +447,7 @@ export function renderFeedback(feedback) {
  */
 export function renderHints(level, revealed) {
   if (!dom.hintsDisplay) return;
+  setHintChatVisible(revealed.length > 0);
   if (revealed.length === 0) {
     dom.hintsDisplay.innerHTML = '<p class="placeholder-text">Clique em "Solicitar dica" se precisar de auxílio investigativo.</p>';
     if (dom.btnHint) {
@@ -421,7 +461,7 @@ export function renderHints(level, revealed) {
     const isObj = typeof item === 'object' && item !== null;
     const text = isObj ? item.text : item;
     const source = isObj ? item.source : 'local';
-    const label = source === 'ollama' ? 'IA FORENSE' : 'BASE LOCAL';
+    const label = source === 'local' ? 'BASE LOCAL' : 'IA FORENSE';
     html += `
       <div class="hint-item">
         <strong>DICA ${i + 1} · ${escapeHtml(label)}</strong>
@@ -640,6 +680,7 @@ export function setHintButtonBugMode(revealedCount, maxHints) {
  */
 export function renderBugHints(challenge, revealed) {
   if (!dom.hintsDisplay) return;
+  setHintChatVisible(revealed.length > 0);
   const hints = challenge.hints || challenge.hintBugs || [];
   if (revealed.length === 0) {
     dom.hintsDisplay.innerHTML = '<p class="placeholder-text">Clique em "Revelar bug" para expor um bug de cada vez — a pontuação desce a cada revelação.</p>';
@@ -652,7 +693,7 @@ export function renderBugHints(challenge, revealed) {
     const isObj = typeof item === 'object' && item !== null;
     const text = isObj ? item.text : item;
     const source = isObj ? item.source : 'local';
-    const label = source === 'ollama' ? 'IA FORENSE' : 'BASE LOCAL';
+    const label = source === 'local' ? 'BASE LOCAL' : 'IA FORENSE';
     html += `
       <div class="hint-item">
         <strong>DICA ${i + 1} · ${escapeHtml(label)}</strong>
@@ -764,27 +805,90 @@ export function renderBugProgress(challenges, currentId, completedLevels, levelP
 export function renderBugRail(challenges, currentId, completedLevels, onSelect) {
   const rail = document.getElementById('rail-buttons-container');
   if (!rail) return;
-  rail.innerHTML = challenges
+  rail.innerHTML = (challenges || [])
     .map(challenge => {
+      const numStr = String(challenge.number || 1).padStart(2, '0');
       const done = completedLevels.includes(challenge.id);
       const active = challenge.id === currentId;
-      const cls = [
-        'rail-mission-btn',
-        active ? 'rail-mission-btn-active' : '',
-        done ? 'rail-mission-btn-done' : '',
-      ].filter(Boolean).join(' ');
-      const prefix = done ? '✅' : `#${String(challenge.number).padStart(2, '0')}`;
-      return `
-        <button type="button" class="${cls}" title="Relatório ${challenge.number}: ${escapeHtml(challenge.title)}" data-bh-id="${escapeHtml(challenge.id)}">
-          <span>${prefix} ${escapeHtml(challenge.title)}</span>
-        </button>
-      `;
+      const cls = ['rail-btn', active ? 'active' : '', done ? 'completed' : ''].filter(Boolean).join(' ');
+      const label = `Relatório ${numStr}: ${challenge.title || ''}`;
+      return `<button type="button" class="${cls}" data-bug-id="${challenge.id}" aria-label="${escapeHtml(label)}" title="${escapeHtml(label)}">${numStr}</button>`;
     })
     .join('');
   if (typeof onSelect === 'function') {
-    rail.querySelectorAll('[data-bh-id]').forEach(btn => {
-      btn.addEventListener('click', () => onSelect(btn.dataset.bhId));
+    rail.querySelectorAll('[data-bug-id]').forEach(btn => {
+      btn.addEventListener('click', () => onSelect(btn.dataset.bugId));
     });
+  }
+}
+
+/* --- Chat de dúvidas com a IA --- */
+
+/**
+ * Mostra ou esconde o painel de chat da aba Dicas.
+ * O chat só aparece depois que o jogador revela a primeira dica.
+ * @param {boolean} visible
+ */
+export function setHintChatVisible(visible) {
+  if (!dom.hintChat) return;
+  dom.hintChat.hidden = !visible;
+}
+
+/**
+ * Renderiza a conversa do chat de dúvidas.
+ * @param {{role: 'user'|'model', text: string}[]} messages
+ * @param {object} [options]
+ * @param {boolean} [options.pending] mostra o balão "consultando"
+ * @param {string} [options.notice] aviso de erro exibido no fim da conversa
+ */
+export function renderHintChat(messages, options = {}) {
+  if (!dom.hintChatLog) return;
+  const list = Array.isArray(messages) ? messages : [];
+
+  if (list.length === 0 && !options.pending && !options.notice) {
+    dom.hintChatLog.innerHTML = '<p class="placeholder-text">Escreva sua dúvida sobre o desafio — a IA responde sem entregar a consulta pronta.</p>';
+    return;
+  }
+
+  let html = '';
+  for (const message of list) {
+    const isUser = message.role === 'user';
+    html += `
+      <div class="chat-msg ${isUser ? 'chat-msg-user' : 'chat-msg-ai'}">
+        <strong>${isUser ? 'VOCÊ' : 'IA FORENSE'}</strong>
+        <span>${escapeHtml(message.text)}</span>
+      </div>
+    `;
+  }
+
+  if (options.pending) {
+    html += `
+      <div class="chat-msg chat-msg-ai chat-msg-pending">
+        <strong>IA FORENSE</strong>
+        <span>Consultando o canal criptografado…</span>
+      </div>
+    `;
+  }
+
+  if (options.notice) {
+    html += `<p class="chat-notice">${escapeHtml(options.notice)}</p>`;
+  }
+
+  dom.hintChatLog.innerHTML = html;
+  dom.hintChatLog.scrollTop = dom.hintChatLog.scrollHeight;
+}
+
+/**
+ * Alterna o estado de envio do chat (bloqueia input e botão).
+ * @param {boolean} sending
+ */
+export function setHintChatSending(sending) {
+  if (dom.btnHintChatSend) {
+    dom.btnHintChatSend.disabled = Boolean(sending);
+    dom.btnHintChatSend.textContent = sending ? 'CONSULTANDO…' : 'ENVIAR';
+  }
+  if (dom.hintChatInput) {
+    dom.hintChatInput.disabled = Boolean(sending);
   }
 }
 
@@ -951,6 +1055,7 @@ export function activateSidebarTab(tabName = 'lesson') {
   const tabs = Array.from(document.querySelectorAll('#sidebar-tabs-nav .sidebar-tab-btn'));
   const availableTarget = tabs.find(btn => btn.dataset.sidebarTab === tabName && !btn.hidden)
     || tabs.find(btn => btn.dataset.sidebarTab === 'lesson' && !btn.hidden)
+    || tabs.find(btn => btn.dataset.sidebarTab === 'diagram' && !btn.hidden)
     || tabs.find(btn => btn.dataset.sidebarTab === 'evidence' && !btn.hidden)
     || tabs.find(btn => !btn.hidden);
   if (!availableTarget) return;
@@ -967,18 +1072,27 @@ export function activateSidebarTab(tabName = 'lesson') {
     pane.classList.toggle('active', active);
     pane.hidden = !active;
   });
+  if (typeof CustomEvent !== 'undefined') {
+    document.dispatchEvent(new CustomEvent('sidebar-tab-activated', { detail: { tab: activeName } }));
+  } else if (typeof document.dispatchEvent === 'function') {
+    document.dispatchEvent({ type: 'sidebar-tab-activated', detail: { tab: activeName } });
+  }
 }
 
-export function configureSidebarTabs({ graph = false, timeline = false, suspects = false, lesson = true } = {}) {
-  const availability = { lesson, evidence: true, graph, timeline, suspects, hints: true };
+export function configureSidebarTabs({ graph = false, timeline = false, suspects = false, lesson = true, diagram = true, suspectsLabel = 'SUSPEITOS' } = {}) {
+  const tabsNav = document.getElementById('sidebar-tabs-nav');
+  if (tabsNav) tabsNav.hidden = false;
+  const availability = { lesson, diagram, evidence: true, graph, timeline, suspects, hints: true };
   const tabs = Array.from(document.querySelectorAll('#sidebar-tabs-nav .sidebar-tab-btn'));
   tabs.forEach(btn => {
     const available = Boolean(availability[btn.dataset.sidebarTab]);
     btn.hidden = !available;
     btn.disabled = !available;
   });
+  const suspectsTab = document.getElementById('sidebar-tab-suspects');
+  if (suspectsTab) suspectsTab.textContent = suspectsLabel;
   const current = tabs.find(btn => btn.classList.contains('active') && !btn.hidden);
-  activateSidebarTab(current?.dataset.sidebarTab || (availability.lesson ? 'lesson' : 'evidence'));
+  activateSidebarTab(current?.dataset.sidebarTab || (availability.lesson ? 'lesson' : availability.diagram ? 'diagram' : 'evidence'));
 }
 
 export function updateLessonTabBadge(isUnread) {
@@ -1180,6 +1294,7 @@ export function renderSchemaChallenge(challenge, currentDdl = '', completedLevel
  */
 export function renderSchemaHints(challenge, revealed) {
   if (!dom.hintsDisplay) return;
+  setHintChatVisible(revealed.length > 0);
   const hints = challenge.hints || [];
   if (revealed.length === 0) {
     dom.hintsDisplay.innerHTML = '<p class="placeholder-text">Use "Revelar dica" para receber orientações progressivas de modelagem — cada revelação reduz a pontuação do desafio. A IA arquiteta pode revisar seu modelo completo de uma vez.</p>';
@@ -1192,7 +1307,7 @@ export function renderSchemaHints(challenge, revealed) {
     const isObj = typeof item === 'object' && item !== null;
     const text = isObj ? item.text : item;
     const source = isObj ? item.source : 'local';
-    const label = source === 'ai-architect' ? 'IA ARQUITETA' : source === 'ollama' ? 'IA ARQUITETA' : 'BASE LOCAL';
+    const label = source === 'local' ? 'BASE LOCAL' : 'IA ARQUITETA';
     html += `
       <div class="hint-item">
         <strong>DICA ${i + 1} · ${escapeHtml(label)}</strong>
@@ -1230,71 +1345,15 @@ export function setAiReviewButtonLoading(loading) {
  * @param {object} feedback resultado do validateSchemaChallenge
  */
 export function renderSchemaFeedback(feedback) {
-  let cls = 'feedback';
-  let label = '';
-
-  switch (feedback?.type) {
-    case 'correct':
-      cls = 'feedback feedback-success';
-      label = '✓ MODELO VALIDADO.';
-      break;
-    case 'incomplete':
-      cls = 'feedback feedback-warn';
-      label = '🏗️ MODELO INCOMPLETO.';
-      break;
-    case 'sql_error':
-      cls = 'feedback feedback-error';
-      label = '⚠ ERRO DE SQL.';
-      break;
-    case 'blocked':
-      cls = 'feedback feedback-error';
-      label = '⛔ COMANDO BLOQUEADO.';
-      break;
-    case 'missing_table':
-      cls = 'feedback feedback-warn';
-      label = '🏗️ TABELA AUSENTE.';
-      break;
-    case 'unexpected_table':
-      cls = 'feedback feedback-warn';
-      label = '⚠ TABELA NÃO ESPERADA.';
-      break;
-    case 'missing_pk':
-      cls = 'feedback feedback-warn';
-      label = '🔑 CHAVE PRIMÁRIA AUSENTE.';
-      break;
-    case 'missing_column':
-      cls = 'feedback feedback-warn';
-      label = '⚠ COLUNA AUSENTE.';
-      break;
-    case 'missing_fk':
-      cls = 'feedback feedback-warn';
-      label = '🔗 CHAVE ESTRANGEIRA AUSENTE.';
-      break;
-    case 'missing_junction':
-      cls = 'feedback feedback-warn';
-      label = '🔗 RELAÇÃO N:N SEM TABELA DE JUNÇÃO.';
-      break;
-    case 'cardinality_wrong':
-      cls = 'feedback feedback-warn';
-      label = '⚠ CARDINALIDADE INCORRETA.';
-      break;
-    case 'constraint_missing':
-      cls = 'feedback feedback-warn';
-      label = '⚠ RESTRIÇÃO AUSENTE.';
-      break;
-    default:
-      cls = 'feedback feedback-warn';
-      label = '⚠ REVISANDO MODELO.';
-  }
-
-  const container = dom.resultsContainer;
+  const container = document.getElementById('results-container');
   if (!container || !feedback) return;
-  const existing = container.querySelector('.feedback');
-  if (existing) existing.remove();
-
+  container.innerHTML = '';
   const div = document.createElement('div');
-  div.className = cls;
-  div.innerHTML = `<strong style="font-family: var(--font-mono); letter-spacing: .06em;">${label}</strong> ${escapeHtml(feedback.message)}`;
+  const typeCls = feedback.type === 'sql_error' || feedback.type === 'blocked'
+    ? 'feedback-error'
+    : (feedback.type === 'correct' ? 'feedback-success' : 'feedback-warn');
+  div.className = `feedback ${typeCls}`;
+  div.innerHTML = `<p>${escapeHtml(feedback.message)}</p>`;
   container.appendChild(div);
 }
 
@@ -1391,21 +1450,14 @@ export function renderSchemaProgress(challenges, currentId, completedLevels, lev
 export function renderSchemaRail(challenges, currentId, completedLevels, onSelect) {
   const rail = document.getElementById('rail-buttons-container');
   if (!rail) return;
-  rail.innerHTML = challenges
+  rail.innerHTML = (challenges || [])
     .map(challenge => {
+      const numStr = String(challenge.number || challenge.id).padStart(2, '0');
       const done = completedLevels.includes(challenge.id);
       const active = challenge.id === currentId;
-      const cls = [
-        'rail-mission-btn',
-        active ? 'rail-mission-btn-active' : '',
-        done ? 'rail-mission-btn-done' : '',
-      ].filter(Boolean).join(' ');
-      const prefix = done ? '✅' : `#${String(challenge.number).padStart(2, '0')}`;
-      return `
-        <button type="button" class="${cls}" title="Modelo ${challenge.number}: ${escapeHtml(challenge.title)}" data-sb-id="${challenge.id}">
-          <span>${prefix} ${escapeHtml(challenge.title)}</span>
-        </button>
-      `;
+      const cls = ['rail-btn', active ? 'active' : '', done ? 'completed' : ''].filter(Boolean).join(' ');
+      const label = `Modelo ${numStr}: ${challenge.title || ''}`;
+      return `<button type="button" class="${cls}" data-sb-id="${challenge.id}" aria-label="${escapeHtml(label)}" title="${escapeHtml(label)}">${numStr}</button>`;
     })
     .join('');
   if (typeof onSelect === 'function') {
@@ -1473,38 +1525,95 @@ export function renderGraph(graphConfig, completedLevels, evidence, suspicion) {
 
 /* --- Interrogation Modal --- */
 
+function formatEvidenceDate(sortKey) {
+  if (!sortKey || typeof sortKey !== 'string') return '';
+  const d = new Date(sortKey);
+  if (isNaN(d.getTime())) return '';
+  const pad = n => String(n).padStart(2, '0');
+  return `${pad(d.getDate())}/${pad(d.getMonth() + 1)}/${d.getFullYear()} · ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
 export function showInterrogationModal(finalChallenge, interrogationState, unlockedEvidences) {
-  if (!dom.interrogationModal) return;
-  if (dom.interrogationModal.hidden) interrogationReturnFocus = document.activeElement;
-  dom.interrogationModal.hidden = false;
+  const modal = document.getElementById('interrogation-modal');
+  if (!modal) return;
+  if (modal.hidden) interrogationReturnFocus = document.activeElement;
+  modal.hidden = false;
 
-  if (dom.interrogationSuspectName) {
-    dom.interrogationSuspectName.textContent = finalChallenge.suspectName || 'Camila Torres';
+  const isConfrontation = finalChallenge.type === 'confrontation';
+  const title = document.getElementById('interrogation-title');
+  if (title) {
+    title.textContent = isConfrontation ? 'CONFRONTO FINAL' : 'INTERROGATÓRIO';
   }
 
-  const stepIndex = interrogationState.stepIndex;
-  const currentStep = finalChallenge.steps[stepIndex];
-
-  if (dom.interrogationStatement && currentStep) {
-    dom.interrogationStatement.textContent = currentStep.statement;
+  const suspectName = finalChallenge.suspectName || 'Camila Torres';
+  const suspectEl = document.getElementById('interrogation-suspect-name');
+  if (suspectEl) {
+    suspectEl.textContent = suspectName;
   }
-
-  if (dom.interrogationEvidenceList) {
-    let html = '';
-    for (const ev of unlockedEvidences) {
-      html += `<button type="button" class="btn btn-secondary interrogation-evidence-btn" data-evidence-id="${escapeHtml(ev.id)}">${escapeHtml(ev.label)}</button>`;
+  const avatar = document.getElementById('interrogation-avatar');
+  if (avatar) {
+    const initials = suspectName.split(/\s+/).map(w => w[0]).filter(Boolean).slice(0, 2).join('').toUpperCase();
+    avatar.textContent = initials || 'CT';
+  }
+  const role = document.getElementById('interrogation-suspect-role');
+  if (role) {
+    if (finalChallenge.suspectRole) {
+      role.textContent = finalChallenge.suspectRole;
+      role.hidden = false;
+    } else {
+      role.hidden = true;
     }
-    dom.interrogationEvidenceList.innerHTML = html;
   }
 
-  if (dom.interrogationFeedback) {
-    dom.interrogationFeedback.textContent = '';
-    dom.interrogationFeedback.style.cssText = 'margin-top: 14px;';
+  const stepIndex = interrogationState.stepIndex || 0;
+  const currentStep = finalChallenge.steps?.[stepIndex];
+  const stepProgress = document.getElementById('interrogation-step-progress');
+  if (stepProgress && Array.isArray(finalChallenge.steps)) {
+    const term = isConfrontation ? 'CONTRADIÇÃO' : 'ETAPA';
+    stepProgress.textContent = `${term} ${stepIndex + 1}/${finalChallenge.steps.length}`;
   }
 
-  if (dom.btnInterrogationClose) {
-    dom.btnInterrogationClose.focus();
+  const stmt = document.getElementById('interrogation-statement');
+  if (stmt && currentStep) {
+    stmt.textContent = currentStep.statement;
   }
+
+  const evList = document.getElementById('interrogation-evidence-list');
+  if (evList) {
+    const presented = interrogationState.presentedEvidenceIds || [];
+    const available = (unlockedEvidences || []).filter(ev => !presented.includes(ev.id));
+    let html = '';
+    for (const ev of available) {
+      const datePart = formatEvidenceDate(ev.sortKey);
+      const label = datePart ? `${escapeHtml(ev.label)} · ${datePart}` : escapeHtml(ev.label);
+      html += `<button type="button" class="btn btn-secondary interrogation-evidence-btn" data-evidence-id="${escapeHtml(ev.id)}">${label}</button>`;
+    }
+    evList.innerHTML = html;
+  }
+
+  const feedbackEl = document.getElementById('interrogation-feedback');
+  if (feedbackEl) {
+    feedbackEl.textContent = '';
+    feedbackEl.style.cssText = 'margin-top: 14px;';
+  }
+
+  const btnAdvance = document.getElementById('btn-interrogation-advance');
+  if (btnAdvance) {
+    btnAdvance.hidden = true;
+  }
+
+  const btnClose = document.getElementById('btn-interrogation-close');
+  if (btnClose) {
+    btnClose.focus();
+  }
+}
+
+export function showInterrogationAdvanceButton(isFinal = false) {
+  const btnAdvance = document.getElementById('btn-interrogation-advance');
+  if (!btnAdvance) return;
+  btnAdvance.hidden = false;
+  btnAdvance.textContent = isFinal ? 'CONCLUIR CASO →' : 'PRÓXIMA CONTRADIÇÃO →';
+  if (typeof btnAdvance.focus === 'function') btnAdvance.focus();
 }
 
 export function hideInterrogationModal() {

@@ -7,7 +7,7 @@
  * Para CADA desafio:
  * - Modelo correto (cria todas as tabelas com PKs, FKs e cardinalidades) → SB_FEEDBACK_CORRECT
  * - Modelo incompleto (falta tabela/chave) → incomplete/missing_*
- * - Modelo com tabela não esperada → unexpected_table
+ * - Modelo com tabela auxiliar → continua válido
  * - SQL inválido → sql_error
  * - Comandos bloqueados (DROP, DELETE…) → blocked
  *
@@ -35,7 +35,8 @@ const { validateSchemaChallenge, SB_FEEDBACK_CORRECT, SB_FEEDBACK_INCOMPLETE,
         SB_FEEDBACK_UNEXPECTED_TABLE, SB_FEEDBACK_MISSING_PK, SB_FEEDBACK_MISSING_FK,
         SB_FEEDBACK_MISSING_JUNCTION, SB_FEEDBACK_CONSTRAINT_MISSING,
         executeMultipleStatements, findForbiddenKeyword, splitStatements,
-        getCreatedTableName, getCreatedTableNames, mergeSchemaStatements,
+        getCreatedTableName, getDroppedTableName, getCreatedTableNames, mergeSchemaStatements,
+        splitSchemaModelStatements,
         getExistingTables } = validator;
 
 /**
@@ -219,19 +220,13 @@ async function run() {
     assert(r2.type === SB_FEEDBACK_MISSING_TABLE || r2.type === SB_FEEDBACK_INCOMPLETE,
       `tabela ${firstTable} ausente → ${r2.type} (esperado missing_table/incomplete)`);
 
-    // 3. Tabela não esperada → unexpected_table
-    console.log(`[${ch.id}.3] Tabela não esperada`);
+    // 3. Tabelas auxiliares são permitidas para apoiar o Diagrama ER.
+    console.log(`[${ch.id}.3] Tabela auxiliar`);
     const unexpectedName = (ch.unexpectedTables && ch.unexpectedTables[0]) || 'tabela_estranha';
     const r3 = validateSchemaChallenge(SOLUTIONS[ch.id]() +
       `CREATE TABLE ${unexpectedName} (id INTEGER PRIMARY KEY);`, ch, freshDB(SQL));
-    if ((ch.unexpectedTables || []).length === 0) {
-      // Sem lista de proibidas, qualquer tabela extra é tolerada.
-      assert(r3.type === SB_FEEDBACK_CORRECT,
-        `tabela extra tolerada (sem lista de proibidas) → ${r3.type}`);
-    } else {
-      assert(r3.type === SB_FEEDBACK_UNEXPECTED_TABLE,
-        `tabela ${unexpectedName} → ${r3.type} (esperado unexpected_table)`);
-    }
+    assert(r3.type === SB_FEEDBACK_CORRECT,
+      `tabela auxiliar ${unexpectedName} é tolerada → ${r3.type}`);
 
     // 4. SQL inválido → sql_error
     console.log(`[${ch.id}.4] SQL inválido`);
@@ -328,17 +323,20 @@ async function run() {
     return { errors, feedback: validateSchemaChallenge(ddl, ch1, stepDb, { applyDdl: false }), ddl };
   };
 
-  const step1 = runStep('CREATE TABLE departamentos (id INTEGER PRIMARY KEY, nome TEXT NOT NULL);');
+  const step1 = runStep(
+    'CREATE TABLE departamentos (id INTEGER PRIMARY KEY, nome TEXT NOT NULL) -- primeira tabela'
+  );
   assert(step1.errors.length === 0, 'execução 1 (departamentos) aplica sem erro');
   assert(step1.feedback.type === SB_FEEDBACK_MISSING_TABLE,
     `execução 1 → ${step1.feedback.type} (esperado missing_table)`);
 
-  // O jogador acrescenta a segunda tabela ao conteúdo que já está no editor.
-  const step2 = runStep(step1.ddl + `
-    CREATE TABLE funcionarios (id INTEGER PRIMARY KEY, nome TEXT NOT NULL, cargo TEXT NOT NULL,
-      departamento_id INTEGER, FOREIGN KEY (departamento_id) REFERENCES departamentos(id));`);
+  // O jogador limpa o editor e envia apenas a segunda tabela, também sem ';'.
+  const step2 = runStep(`CREATE TABLE funcionarios (
+    id INTEGER PRIMARY KEY, nome TEXT NOT NULL, cargo TEXT NOT NULL,
+    departamento_id INTEGER, FOREIGN KEY (departamento_id) REFERENCES departamentos(id)
+  )`);
   assert(step2.errors.length === 0,
-    `execução 2 não repete instruções já aplicadas${step2.errors.length ? ' — ' + step2.errors[0].message : ''}`);
+    `execução 2 sem ponto e vírgula preserva a fronteira dos CREATE${step2.errors.length ? ' — ' + step2.errors[0].message : ''}`);
   assert(step2.feedback.type === SB_FEEDBACK_CORRECT,
     `execução 2 conclui o modelo → ${step2.feedback.type} (esperado correct)`);
 
@@ -347,6 +345,19 @@ async function run() {
   assert(step3.errors.length === 0 && step3.feedback.type === SB_FEEDBACK_CORRECT,
     `reexecutar o mesmo modelo é idempotente → ${step3.feedback.type}`);
   assert(model.length === 2, `modelo acumulado não duplica instruções (${model.length} instruções)`);
+
+  // Versões antigas podiam persistir dois CREATEs sem delimitador dentro do
+  // mesmo item. A migração precisa recuperar as duas fronteiras sem reset.
+  const legacyModel = mergeSchemaStatements([
+    `CREATE TABLE departamentos (id INTEGER PRIMARY KEY, nome TEXT NOT NULL)
+     CREATE TABLE funcionarios (id INTEGER PRIMARY KEY)`
+  ], 'CREATE TABLE funcionarios (id INTEGER PRIMARY KEY AUTOINCREMENT);');
+  const legacyDb = freshDB(SQL);
+  const legacyDdl = legacyModel.join('\n');
+  const legacyRun = executeMultipleStatements(legacyDdl, legacyDb);
+  assert(legacyModel.length === 2, `bloco legado vira 2 instruções (${legacyModel.length})`);
+  assert(legacyRun.errors.length === 0,
+    `AUTOINCREMENT após modelo legado executa sem near CREATE${legacyRun.errors.length ? ' — ' + legacyRun.errors[0].message : ''}`);
 
   // Redefinir uma tabela substitui a definição anterior (corrigir sem recomeçar).
   const corrigido = mergeSchemaStatements(
@@ -364,6 +375,12 @@ async function run() {
     'getCreatedTableName lê nome com aspas e IF NOT EXISTS');
   assert(getCreatedTableName('SELECT * FROM departamentos;') === null,
     'getCreatedTableName ignora consultas');
+  assert(getDroppedTableName('DROP TABLE IF EXISTS "turma";') === 'turma',
+    'getDroppedTableName le DROP TABLE com IF EXISTS e aspas');
+  const createThenDrop = splitSchemaModelStatements(
+    'CREATE TABLE turmas (id INT PRIMARY KEY)\nDROP TABLE turma');
+  assert(createThenDrop.length === 2 && getDroppedTableName(createThenDrop[1]) === 'turma',
+    'DROP TABLE sem ponto e virgula anterior vira uma instrucao separada');
 
   // BUG: o checklist procurava o nome da tabela no texto do DDL, então uma tabela
   // apenas citada numa FK aparecia como "criada".

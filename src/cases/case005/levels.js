@@ -84,7 +84,7 @@ export const LEVELS = [
     referenceQuery: "SELECT DISTINCT TRIM(cliente_nome) AS nome FROM supremacy ORDER BY nome;",
     requiredConcepts: ['distinct', 'trim'],
     hints: ['Use DISTINCT para eliminar duplicatas.', 'Use TRIM() para remover espaços extras.', "SELECT DISTINCT TRIM(cliente_nome) AS nome FROM supremacy ORDER BY nome;"],
-    courseRefs: ['normalizacao-1fn', 'dml-select-where'],
+    courseRefs: ['normalizacao-1fn', 'dml-select-where', 'string-functions'],
     evidence: 'Evidência 1: A planilha contém 11 grafias para apenas 9 CPFs — uma anomalia de cadastro que precisa ser consolidada.',
     explanation: 'DISTINCT elimina linhas duplicadas. TRIM() remove espaços extras do início e fim do texto.',
   },
