@@ -99,7 +99,7 @@ import {
   renderHeaderProgress,
 } from './ui.js';
 import { renderLessonHtml } from './lesson.js';
-import { renderERDiagram } from './er-diagram.js';
+import { renderERDiagram, fitERDiagram } from './er-diagram.js';
 import { getCourseContentById } from './course-content.js';
 import { buildHintContext, requestAiHint } from './ai-hints.js';
 import { buildChatContext, requestAiChat } from './ai-chat.js';
@@ -2868,9 +2868,7 @@ function initBasicEvents() {
   if (btnERFit) {
     btnERFit.addEventListener('click', () => {
       if (!sidebarErContent) return;
-      const isFit = sidebarErContent.classList.toggle('fit-width');
-      btnERFit.textContent = isFit ? '100%' : 'AJUSTAR';
-      btnERFit.setAttribute('aria-pressed', String(isFit));
+      fitERDiagram(sidebarErContent);
     });
   }
 

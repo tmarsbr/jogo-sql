@@ -511,8 +511,15 @@ export function validateSchemaChallenge(ddlSql, challenge, db, options = {}) {
       const existingTable = getColumnsOfTable(db, junctionName);
       if (existingTable.length === 0) continue; // missing_table já cobriu
       const pkNames = getPrimaryKeys(db, junctionName);
-      if (pkNames.length < 2) {
-        tableResults.push({ table: junctionName, check, issue: SB_FEEDBACK_MISSING_PK, missing: pkNames });
+      const normalizedPkNames = new Set(pkNames.map(name => normalizeIdentifier(name)));
+      const missingPkNames = check.pk.filter(name => !normalizedPkNames.has(normalizeIdentifier(name)));
+      if (pkNames.length < 2 || missingPkNames.length > 0) {
+        tableResults.push({
+          table: junctionName,
+          check,
+          issue: SB_FEEDBACK_MISSING_PK,
+          missing: missingPkNames.length > 0 ? missingPkNames : check.pk,
+        });
         continue;
       }
       for (const fk of check.fk) {
@@ -529,7 +536,8 @@ export function validateSchemaChallenge(ddlSql, challenge, db, options = {}) {
     if (existingTable.length === 0) continue; // missing_table já cobriu
 
     // PK obrigatória.
-    if (check.pk.length > 0) {
+    // PKs compostas já foram verificadas no bloco de tabelas de junção.
+    if (check.pk.length > 0 && check.pk.length < 2) {
       const pkNames = getPrimaryKeys(db, tableName);
       if (pkNames.length === 0) {
         tableResults.push({ table: tableName, check, issue: SB_FEEDBACK_MISSING_PK, missing: check.pk });
@@ -572,7 +580,7 @@ export function validateSchemaChallenge(ddlSql, challenge, db, options = {}) {
       const first = issues[0];
       const messages = {
         [SB_FEEDBACK_MISSING_JUNCTION]: `A relação muitos-para-muitos exige uma tabela de junção (ex.: "${first.table}") com chave primária composta e as duas chaves estrangeiras.`,
-        [SB_FEEDBACK_MISSING_PK]: `A tabela "${first.table}" precisa de chave primária declarada (PRIMARY KEY${first.missing.length > 1 ? ' composta' : ''}).`,
+        [SB_FEEDBACK_MISSING_PK]: `A tabela "${first.table}" precisa de uma PRIMARY KEY${first.missing.length > 1 ? ' composta' : ''} com a(s) coluna(s): ${first.missing.join(', ')}.`,
         [SB_FEEDBACK_MISSING_FK]: `A tabela "${first.table}" precisa de uma chave estrangeira: ${first.missing[0]}.`,
         [SB_FEEDBACK_CARDINALITY_WRONG]: `Cardinalidade incorreta na tabela "${first.table}".`,
         [SB_FEEDBACK_MISSING_COLUMN]: `A tabela "${first.table}" está sem a coluna "${first.missing[0]}".`,

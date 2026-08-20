@@ -1,190 +1,94 @@
 /**
- * er-diagram.js — Gera um diagrama ER em SVG a partir do schema do banco.
+ * er-diagram.js — Diagrama ER interativo v2 com canvas zoom/pan/drag.
  *
- * Fase 9: diagrama ER legível mostrando tabelas, colunas, PK, FK e relações.
- * O diagrama é renderizado em um modal sobreposto — não bloqueia o editor.
+ * Renderiza tabelas como cards DOM + relações SVG com roteamento ortogonal,
+ * cantos arredondados, labels de cardinalidade, badges PK/FK, seleção de
+ * tabelas, hover tooltip nas linhas e controles de zoom.
+ *
+ * O DOM é montado uma única vez por schema; interações (zoom, pan, drag,
+ * seleção, hover) apenas repintam atributos dos nós já existentes. Isso
+ * preserva a rolagem do canvas e evita reconsultar o banco a cada frame.
+ *
+ * Mantém exports retrocompatíveis: renderERDiagram, generateERDiagramSVG,
+ * getERTables, getERRelations.
  */
 
-import { getDB, getSchemaDetailed } from './db.js';
+import { getSchemaDetailed } from './db.js';
 
-/* --- Configuração visual do SVG --- */
-const TABLE_WIDTH = 230;
-const HEADER_HEIGHT = 28;
-const ROW_HEIGHT = 20;
-const PADDING = 16;
-const TABLE_GAP_X = 80;
-const TABLE_GAP_Y = 60;
+/* ================================================================
+   CONSTANTES DE LAYOUT
+   ================================================================ */
+const W = 252;            // largura fixa de cada card de tabela
+const HEAD = 30;          // altura do header da tabela
+const ROW = 22;           // altura de cada linha de coluna
+const PAD = 30;           // padding do mundo
+const GX = 110;           // gap horizontal entre colunas do grid
+const GY = 84;            // gap vertical entre linhas do grid
+const CORNER_RADIUS = 7;  // raio dos cantos arredondados das linhas
+const GRID_COLUMNS = 3;   // colunas do grid automático do schema dinâmico
 
-/* --- Definição estática das tabelas e relações --- */
-/* Evita consultar o banco toda vez e garante layout determinístico. */
-const TABLES = [
-  {
-    name: 'departamentos',
-    columns: [
-      { name: 'id', type: 'INTEGER', pk: true, fk: null },
-      { name: 'nome', type: 'TEXT', pk: false, fk: null },
-      { name: 'andar', type: 'INTEGER', pk: false, fk: null },
-    ],
-  },
-  {
-    name: 'funcionarios',
-    columns: [
-      { name: 'id', type: 'INTEGER', pk: true, fk: null },
-      { name: 'nome', type: 'TEXT', pk: false, fk: null },
-      { name: 'cargo', type: 'TEXT', pk: false, fk: null },
-      { name: 'departamento_id', type: 'INTEGER', pk: false, fk: 'departamentos.id' },
-      { name: 'salario_centavos', type: 'INTEGER', pk: false, fk: null },
-      { name: 'data_admissao', type: 'TEXT', pk: false, fk: null },
-    ],
-  },
-  {
-    name: 'contas',
-    columns: [
-      { name: 'id', type: 'INTEGER', pk: true, fk: null },
-      { name: 'numero_conta', type: 'TEXT', pk: false, fk: null },
-      { name: 'funcionario_id', type: 'INTEGER', pk: false, fk: 'funcionarios.id' },
-      { name: 'titular_externo', type: 'TEXT', pk: false, fk: null },
-      { name: 'banco', type: 'TEXT', pk: false, fk: null },
-      { name: 'tipo', type: 'TEXT', pk: false, fk: null },
-    ],
-  },
-  {
-    name: 'transacoes',
-    columns: [
-      { name: 'id', type: 'INTEGER', pk: true, fk: null },
-      { name: 'conta_origem_id', type: 'INTEGER', pk: false, fk: 'contas.id' },
-      { name: 'conta_destino_id', type: 'INTEGER', pk: false, fk: 'contas.id' },
-      { name: 'valor_centavos', type: 'INTEGER', pk: false, fk: null },
-      { name: 'data_hora', type: 'TEXT', pk: false, fk: null },
-      { name: 'descricao', type: 'TEXT', pk: false, fk: null },
-      { name: 'operador_funcionario_id', type: 'INTEGER', pk: false, fk: 'funcionarios.id' },
-    ],
-  },
-  {
-    name: 'logs_acesso',
-    columns: [
-      { name: 'id', type: 'INTEGER', pk: true, fk: null },
-      { name: 'funcionario_id', type: 'INTEGER', pk: false, fk: 'funcionarios.id' },
-      { name: 'data_hora', type: 'TEXT', pk: false, fk: null },
-      { name: 'tipo', type: 'TEXT', pk: false, fk: null },
-      { name: 'local', type: 'TEXT', pk: false, fk: null },
-    ],
-  },
-  {
-    name: 'emails',
-    columns: [
-      { name: 'id', type: 'INTEGER', pk: true, fk: null },
-      { name: 'remetente_id', type: 'INTEGER', pk: false, fk: 'funcionarios.id' },
-      { name: 'destinatario_id', type: 'INTEGER', pk: false, fk: 'funcionarios.id' },
-      { name: 'assunto', type: 'TEXT', pk: false, fk: null },
-      { name: 'data_hora', type: 'TEXT', pk: false, fk: null },
-      { name: 'conteudo', type: 'TEXT', pk: false, fk: null },
-    ],
-  },
+const REL_COLOR = '#8B5CF6';
+const REL_COLOR_HOVER = '#A78BFA';
+const ZOOM_MIN = 0.3;
+const ZOOM_MAX = 2.4;
+const ZOOM_FIT_MAX = 1.5;
+const NARROW_CANVAS = 420;  // abaixo disso o container é tratado como painel lateral
+
+const SVG_NS = 'http://www.w3.org/2000/svg';
+
+/* ================================================================
+   DEFINIÇÃO ESTÁTICA — CASO 001 (FALLBACK)
+   ================================================================ */
+const STATIC_TABLES = [
+  { name: 'departamentos', col: 0, row: 0, columns: [['id', 'INTEGER', 'pk'], ['nome', 'TEXT', ''], ['andar', 'INTEGER', '']] },
+  { name: 'funcionarios', col: 1, row: 0, columns: [['id', 'INTEGER', 'pk'], ['nome', 'TEXT', ''], ['cargo', 'TEXT', ''], ['departamento_id', 'INTEGER', 'fk'], ['salario_centavos', 'INTEGER', ''], ['data_admissao', 'TEXT', '']] },
+  { name: 'contas', col: 2, row: 0, columns: [['id', 'INTEGER', 'pk'], ['numero_conta', 'TEXT', ''], ['funcionario_id', 'INTEGER', 'fk'], ['titular_externo', 'TEXT', ''], ['banco', 'TEXT', ''], ['tipo', 'TEXT', '']] },
+  { name: 'transacoes', col: 0, row: 1, columns: [['id', 'INTEGER', 'pk'], ['conta_origem_id', 'INTEGER', 'fk'], ['conta_destino_id', 'INTEGER', 'fk'], ['valor_centavos', 'INTEGER', ''], ['data_hora', 'TEXT', ''], ['descricao', 'TEXT', ''], ['operador_funcionario_id', 'INTEGER', 'fk']] },
+  { name: 'logs_acesso', col: 1, row: 1, columns: [['id', 'INTEGER', 'pk'], ['funcionario_id', 'INTEGER', 'fk'], ['data_hora', 'TEXT', ''], ['tipo', 'TEXT', ''], ['local', 'TEXT', '']] },
+  { name: 'emails', col: 2, row: 1, columns: [['id', 'INTEGER', 'pk'], ['remetente_id', 'INTEGER', 'fk'], ['destinatario_id', 'INTEGER', 'fk'], ['assunto', 'TEXT', ''], ['data_hora', 'TEXT', ''], ['conteudo', 'TEXT', '']] },
+];
+const STATIC_RELS = [
+  ['funcionarios.departamento_id', 'departamentos.id', false],
+  ['contas.funcionario_id', 'funcionarios.id', false],
+  ['transacoes.conta_origem_id', 'contas.id', false],
+  ['transacoes.conta_destino_id', 'contas.id', false],
+  ['transacoes.operador_funcionario_id', 'funcionarios.id', false],
+  ['logs_acesso.funcionario_id', 'funcionarios.id', false],
+  ['emails.remetente_id', 'funcionarios.id', false],
+  ['emails.destinatario_id', 'funcionarios.id', false],
 ];
 
-/* --- Posições das tabelas no grid (layout manual para clareza) --- */
-/* Grid 3 colunas x 2 linhas:
- *   [departamentos] [funcionarios] [contas]
- *   [transacoes]    [logs_acesso]  [emails]
- */
-const TABLE_POSITIONS = {
-  departamentos:  { col: 0, row: 0 },
-  funcionarios:   { col: 1, row: 0 },
-  contas:         { col: 2, row: 0 },
-  transacoes:     { col: 0, row: 1 },
-  logs_acesso:    { col: 1, row: 1 },
-  emails:         { col: 2, row: 1 },
-};
-
-/* --- Relações FK (de -> para) --- */
-const RELATIONS = [
-  { from: 'funcionarios.departamento_id',   to: 'departamentos.id' },
-  { from: 'contas.funcionario_id',           to: 'funcionarios.id' },
-  { from: 'transacoes.conta_origem_id',      to: 'contas.id' },
-  { from: 'transacoes.conta_destino_id',     to: 'contas.id' },
-  { from: 'transacoes.operador_funcionario_id', to: 'funcionarios.id' },
-  { from: 'logs_acesso.funcionario_id',      to: 'funcionarios.id' },
-  { from: 'emails.remetente_id',             to: 'funcionarios.id' },
-  { from: 'emails.destinatario_id',          to: 'funcionarios.id' },
-];
+/* ================================================================
+   UTILITÁRIOS
+   ================================================================ */
 
 /**
- * Calcula as coordenadas (x, y) de cada tabela no SVG.
- * Usa altura máxima por linha para alinhar todas as tabelas da mesma linha.
- * @returns {Object<string, {x: number, y: number, width: number, height: number}>}
+ * Gera um path SVG ortogonal com cantos arredondados.
+ * @param {number[][]} pts Sequência de pontos [x, y]
+ * @param {number} r Raio dos cantos
+ * @returns {string} atributo `d` do path SVG
  */
-function computeLayout() {
-  // Calcula a altura máxima de cada linha do grid
-  const rowHeights = {};
-  for (const table of TABLES) {
-    const pos = TABLE_POSITIONS[table.name];
-    const h = computeTableHeight(table);
-    if (!rowHeights[pos.row] || rowHeights[pos.row] < h) {
-      rowHeights[pos.row] = h;
-    }
+function roundedPath(pts, r) {
+  if (pts.length < 2) return '';
+  const f = (n) => n.toFixed(1);
+  if (r <= 0) return 'M ' + pts.map(p => f(p[0]) + ' ' + f(p[1])).join(' L ');
+  let d = `M ${f(pts[0][0])} ${f(pts[0][1])}`;
+  for (let i = 1; i < pts.length - 1; i++) {
+    const p0 = pts[i - 1], p1 = pts[i], p2 = pts[i + 1];
+    const l1 = Math.hypot(p1[0] - p0[0], p1[1] - p0[1]);
+    const l2 = Math.hypot(p2[0] - p1[0], p2[1] - p1[1]);
+    const rr = Math.min(r, l1 / 2, l2 / 2);
+    if (!isFinite(rr) || rr < 0.8) { d += ` L ${f(p1[0])} ${f(p1[1])}`; continue; }
+    const a = [p1[0] + (p0[0] - p1[0]) / l1 * rr, p1[1] + (p0[1] - p1[1]) / l1 * rr];
+    const b = [p1[0] + (p2[0] - p1[0]) / l2 * rr, p1[1] + (p2[1] - p1[1]) / l2 * rr];
+    d += ` L ${f(a[0])} ${f(a[1])} Q ${f(p1[0])} ${f(p1[1])} ${f(b[0])} ${f(b[1])}`;
   }
-
-  // Calcula o offset Y acumulado de cada linha
-  const rowOffsets = {};
-  let accumY = PADDING;
-  const maxRow = Math.max(...Object.values(TABLE_POSITIONS).map(p => p.row));
-  for (let r = 0; r <= maxRow; r++) {
-    rowOffsets[r] = accumY;
-    accumY += rowHeights[r] + TABLE_GAP_Y;
-  }
-
-  const layout = {};
-  for (const table of TABLES) {
-    const pos = TABLE_POSITIONS[table.name];
-    const x = PADDING + pos.col * (TABLE_WIDTH + TABLE_GAP_X);
-    const y = rowOffsets[pos.row];
-    layout[table.name] = {
-      x,
-      y,
-      width: TABLE_WIDTH,
-      height: computeTableHeight(table),
-    };
-  }
-  return layout;
+  const last = pts[pts.length - 1];
+  return d + ` L ${f(last[0])} ${f(last[1])}`;
 }
 
-/**
- * Calcula a altura de uma tabela no SVG.
- * @param {object} table
- * @returns {number}
- */
-function computeTableHeight(table) {
-  return HEADER_HEIGHT + table.columns.length * ROW_HEIGHT;
-}
-
-/**
- * Encontra a posição Y de uma coluna dentro de uma tabela.
- * @param {object} table
- * @param {string} colName
- * @returns {number} offset Y relativo ao topo da tabela
- */
-function findColumnY(table, colName) {
-  const idx = table.columns.findIndex(c => c.name === colName);
-  if (idx === -1) return HEADER_HEIGHT + ROW_HEIGHT / 2;
-  return HEADER_HEIGHT + idx * ROW_HEIGHT + ROW_HEIGHT / 2;
-}
-
-/**
- * Encontra a tabela pelo nome.
- * @param {string} name
- * @returns {object|null}
- */
-function findTable(name) {
-  return TABLES.find(t => t.name === name) || null;
-}
-
-/**
- * Escapa texto para uso seguro em SVG.
- * @param {string} text
- * @returns {string}
- */
-function escSvg(text) {
+/** Escapa texto para interpolação segura em markup (SVG/HTML). */
+function esc(text) {
   return String(text)
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
@@ -192,169 +96,750 @@ function escSvg(text) {
     .replace(/"/g, '&quot;');
 }
 
+/** Cria um elemento HTML com classe opcional, já anexado ao pai. */
+function el(tag, className, parent) {
+  const node = document.createElement(tag);
+  if (className) node.className = className;
+  if (parent) parent.appendChild(node);
+  return node;
+}
+
+/** Cria um elemento SVG, já anexado ao pai. */
+function svgEl(tag, parent) {
+  const node = document.createElementNS(SVG_NS, tag);
+  if (parent) parent.appendChild(node);
+  return node;
+}
+
+/* ================================================================
+   EXTRAÇÃO DE SCHEMA
+   ================================================================ */
+
 /**
- * Gera o SVG completo do diagrama ER.
- * @returns {string} HTML string com o SVG
+ * Lê o schema do banco ativo e normaliza para o formato do diagrama.
+ *
+ * @returns {{status: string, tables: object[], rels: Array}}
+ *   - `ok`: schema real do banco;
+ *   - `empty`: banco sem tabelas (construtor antes do primeiro CREATE TABLE);
+ *   - `fallback`: banco indisponível — usa a definição estática do caso 001.
  */
-export function generateERDiagramSVG() {
-  const layout = computeLayout();
-
-  // Calcula dimensões do SVG
-  let maxX = 0, maxY = 0;
-  for (const key in layout) {
-    const pos = layout[key];
-    maxX = Math.max(maxX, pos.x + pos.width);
-    maxY = Math.max(maxY, pos.y + pos.height);
+function loadSchema() {
+  let detailed;
+  try {
+    detailed = getSchemaDetailed();
+  } catch {
+    return { status: 'fallback', tables: STATIC_TABLES, rels: STATIC_RELS };
   }
-  const svgWidth = maxX + PADDING;
-  const svgHeight = maxY + PADDING;
+  if (!Array.isArray(detailed)) {
+    return { status: 'fallback', tables: STATIC_TABLES, rels: STATIC_RELS };
+  }
+  if (detailed.length === 0) return { status: 'empty', tables: [], rels: [] };
 
-  let svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${svgWidth}" height="${svgHeight}" viewBox="0 0 ${svgWidth} ${svgHeight}" role="img" aria-label="Diagrama de entidades e relacionamentos" style="max-width: none; height: auto;">`;
+  const tables = [];
+  const rawRels = [];
+  const pkByTable = {};
+  let idx = 0;
 
-  // --- Desenha relações primeiro (fica atrás das tabelas) ---
-  for (const rel of RELATIONS) {
-    const [fromTable, fromCol] = rel.from.split('.');
-    const [toTable, toCol] = rel.to.split('.');
+  detailed.forEach(table => {
+    if (table.objectType === 'view') return;  // views não entram no modelo relacional
 
-    const fromLayout = layout[fromTable];
-    const toLayout = layout[toTable];
-    if (!fromLayout || !toLayout) continue;
+    const columns = table.columns.map(col => {
+      let kind = '';
+      if (col.pk && col.fk) kind = 'pkfk';
+      else if (col.pk) kind = 'pk';
+      else if (col.fk) kind = 'fk';
+      return [col.name, col.type || 'ANY', kind];
+    });
 
-    const fromT = findTable(fromTable);
-    const toT = findTable(toTable);
-    if (!fromT || !toT) continue;
+    const pkCol = table.columns.find(c => c.pk);
+    if (pkCol) pkByTable[table.tableName] = pkCol.name;
 
-    const fromY = fromLayout.y + findColumnY(fromT, fromCol);
-    const toY = toLayout.y + findColumnY(toT, toCol);
+    tables.push({
+      name: table.tableName,
+      col: idx % GRID_COLUMNS,
+      row: Math.floor(idx / GRID_COLUMNS),
+      columns,
+    });
+    idx++;
 
-    // Ponto de saída: borda direita ou esquerda da tabela de origem
-    const fromX = fromLayout.x + fromLayout.width;
-    // Ponto de chegada: borda esquerda da tabela de destino
-    const toX = toLayout.x;
+    table.columns.forEach(col => {
+      if (!col.fk) return;
+      const [targetTable, targetCol] = String(col.fk).split('.');
+      rawRels.push([`${table.tableName}.${col.name}`, targetTable, targetCol, !!col.notnull]);
+    });
+  });
 
-    // Curva de Bezier para a relação
-    const midX = (fromX + toX) / 2;
-    svg += `<path class="er-relation" d="M ${fromX} ${fromY} C ${midX} ${fromY}, ${midX} ${toY}, ${toX} ${toY}" />`;
-    // Ponto na extremidade da FK
-    svg += `<circle class="er-relation-dot" cx="${fromX}" cy="${fromY}" r="3" />`;
-    // Ponto na extremidade da PK referenciada
-    svg += `<circle class="er-relation-dot" cx="${toX}" cy="${toY}" r="3" />`;
+  if (tables.length === 0) return { status: 'empty', tables: [], rels: [] };
+
+  // O SQLite devolve a coluna-alvo vazia quando a FK aponta para a PK implícita.
+  const rels = rawRels.map(([from, targetTable, targetCol, req]) => {
+    const col = targetCol && targetCol !== 'null' ? targetCol : (pkByTable[targetTable] || 'id');
+    return [from, `${targetTable}.${col}`, req];
+  });
+
+  return { status: 'ok', tables, rels };
+}
+
+/** Assinatura da forma do schema — muda só quando tabelas/colunas/FKs mudam. */
+function schemaSignature(schema) {
+  const t = schema.tables.map(x => x.name + '(' + x.columns.map(c => c.join('~')).join(',') + ')').join('|');
+  const r = schema.rels.map(x => x.join('>')).join('|');
+  return t + '#' + r;
+}
+
+/* ================================================================
+   DIAGRAMA INTERATIVO
+   ================================================================ */
+
+class ERDiagram {
+  /** @param {HTMLElement} container */
+  constructor(container) {
+    this.container = container;
+    this.state = { zoom: 1, offsets: {}, sel: null, hover: null };
+    this.schema = { status: 'empty', tables: [], rels: [] };
+    this.signature = null;
+    this.els = null;
+    this.tipEl = null;
+    this.tipSqlEl = null;
+    this.tipCardEl = null;
+    this.drag = null;
+    this.moved = false;
+    this.docBound = false;
+
+    this._onDocMove = this._onDocMove.bind(this);
+    this._onDocUp = this._onDocUp.bind(this);
+    this._onWheel = this._onWheel.bind(this);
   }
 
-  // --- Desenha tabelas ---
-  for (const table of TABLES) {
-    const pos = layout[table.name];
-    const h = computeTableHeight(table);
+  /* ---------------- Ciclo de vida ---------------- */
 
-    // Fundo da tabela
-    svg += `<rect x="${pos.x}" y="${pos.y}" width="${pos.width}" height="${h}" rx="8" ry="8" fill="rgba(17,24,39,0.9)" stroke="#2a3a5c" stroke-width="1" />`;
+  /** Recarrega o schema do banco e redesenha o diagrama. */
+  refresh() {
+    const schema = loadSchema();
 
-    // Header
-    svg += `<rect x="${pos.x}" y="${pos.y}" width="${pos.width}" height="${HEADER_HEIGHT}" rx="8" ry="8" class="er-table-header" />`;
-    // Corrige cantos inferiores do header (retângulo sobreposto)
-    svg += `<rect x="${pos.x}" y="${pos.y + HEADER_HEIGHT - 8}" width="${pos.width}" height="8" fill="rgba(0,217,255,0.15)" />`;
-    svg += `<line x1="${pos.x}" y1="${pos.y + HEADER_HEIGHT}" x2="${pos.x + pos.width}" y2="${pos.y + HEADER_HEIGHT}" stroke="#00d9ff" stroke-width="1" opacity="0.5" />`;
-    svg += `<text x="${pos.x + 10}" y="${pos.y + 18}" class="er-table-title">${escSvg(table.name)}</text>`;
+    if (schema.status === 'empty') {
+      this.schema = schema;
+      this.signature = null;
+      this._renderEmpty();
+      return;
+    }
 
-    // Colunas
-    for (let i = 0; i < table.columns.length; i++) {
-      const col = table.columns[i];
-      const colY = pos.y + HEADER_HEIGHT + i * ROW_HEIGHT + 14;
-      const colX = pos.x + 10;
+    const signature = schemaSignature(schema);
+    const mounted = !!(this.els && this.container.contains(this.els.canvas));
+    this.schema = schema;
 
-      // Indicador PK/FK
-      let marker = '';
-      let markerClass = '';
-      if (col.pk) {
-        marker = 'PK';
-        markerClass = 'er-pk';
-      } else if (col.fk) {
-        marker = 'FK';
-        markerClass = 'er-fk';
-      }
+    if (!mounted || signature !== this.signature) {
+      // Schema novo (ou DOM perdido): remonta e reposiciona do zero.
+      this.signature = signature;
+      this.state.offsets = {};
+      this.state.sel = null;
+      this.state.hover = null;
+      this._buildDOM();
+      this._sync();
+      this.fit();
+    } else {
+      // Mesma forma: preserva zoom, pan, offsets e seleção do usuário.
+      this._sync();
+    }
+  }
 
-      // Nome da coluna com indicador
-      if (marker) {
-        svg += `<text x="${colX}" y="${colY}" class="er-col-name ${markerClass}">${marker} ${escSvg(col.name)}</text>`;
+  /** Ajusta o zoom para o diagrama caber na largura visível. */
+  fit() {
+    const canvas = this.els && this.els.canvas;
+    if (!canvas) return;
+    const { canvasW } = this._geometry();
+    const width = canvas.clientWidth || 0;
+    const available = width - 14;
+    if (available <= 0 || !canvasW) return;
+    const floor = width < NARROW_CANVAS ? 0.5 : 0.32;
+    this.state.zoom = Math.min(ZOOM_FIT_MAX, Math.max(floor, available / canvasW));
+    this._sync();
+  }
+
+  /** Desmonta listeners e limpa o container. */
+  destroy() {
+    this._unbindDoc();
+    if (this.tipEl && this.tipEl.parentNode) this.tipEl.parentNode.removeChild(this.tipEl);
+    this.tipEl = null;
+    if (this.els && this.els.canvas) this.els.canvas.removeEventListener('wheel', this._onWheel);
+    this.els = null;
+    this.signature = null;
+    this.container.innerHTML = '';
+  }
+
+  _bindDoc() {
+    if (this.docBound) return;
+    document.addEventListener('mousemove', this._onDocMove);
+    document.addEventListener('mouseup', this._onDocUp);
+    this.docBound = true;
+  }
+
+  _unbindDoc() {
+    if (!this.docBound) return;
+    document.removeEventListener('mousemove', this._onDocMove);
+    document.removeEventListener('mouseup', this._onDocUp);
+    this.docBound = false;
+  }
+
+  /* ---------------- Layout e geometria ---------------- */
+
+  /** Posição absoluta de cada tabela (grid + offsets de drag). */
+  _layout() {
+    const { tables } = this.schema;
+    const off = this.state.offsets;
+    const rowH = {}, rowY = {};
+
+    tables.forEach(t => {
+      rowH[t.row] = Math.max(rowH[t.row] || 0, HEAD + t.columns.length * ROW);
+    });
+
+    let acc = PAD;
+    const maxRow = Math.max(0, ...tables.map(t => t.row));
+    for (let r = 0; r <= maxRow; r++) {
+      rowY[r] = acc;
+      acc += (rowH[r] || 0) + GY;
+    }
+
+    const L = {};
+    tables.forEach(t => {
+      const o = off[t.name] || { dx: 0, dy: 0 };
+      L[t.name] = {
+        x: PAD + t.col * (W + GX) + o.dx,
+        y: rowY[t.row] + o.dy,
+        h: HEAD + t.columns.length * ROW,
+        col: t.col,
+        row: t.row,
+        table: t,
+      };
+    });
+    return L;
+  }
+
+  /** Y (relativo ao card) do centro da linha de uma coluna. */
+  _colY(table, colName) {
+    const i = table.columns.findIndex(c => c[0] === colName);
+    return HEAD + (i < 0 ? 0 : i) * ROW + ROW / 2;
+  }
+
+  /**
+   * Calcula paths das relações, labels de cardinalidade, posição/estado das
+   * tabelas e o tamanho do mundo. Não toca no DOM.
+   */
+  _geometry() {
+    const schema = this.schema;
+    const L = this._layout();
+    const st = this.state;
+    const gap = 26;
+
+    // Classifica cada relação: lado a lado, contorno ou corredor longo.
+    const raw = [];
+    schema.rels.forEach(([from, to, req]) => {
+      const [ft, fc] = from.split('.');
+      const [tt, tc] = to.split('.');
+      const fl = L[ft], tl = L[tt];
+      if (!fl || !tl) return;
+
+      const fy = fl.y + this._colY(fl.table, fc);
+      const ty = tl.y + this._colY(tl.table, tc);
+
+      let mode, dir, ex, en;
+      if (fl.x + W + gap <= tl.x) { mode = 'side'; dir = 1; ex = fl.x + W; en = tl.x; }
+      else if (tl.x + W + gap <= fl.x) { mode = 'side'; dir = -1; ex = fl.x; en = tl.x + W; }
+      else { mode = 'around'; dir = -1; ex = fl.x; en = tl.x; }
+
+      const far = mode === 'side' && Math.abs(fl.x - tl.x) > W + GX + 40;
+      const key = mode + (far ? 'far' : 'near') + Math.round((ex + en) / 60);
+      raw.push({ ft, fc, tt, tc, req, fl, tl, fy, ty, mode, dir, ex, en, far, key });
+    });
+
+    // Canaletas: relações no mesmo corredor ganham lanes distintas.
+    const lanes = {};
+    raw.forEach(r => { r.lane = (lanes[r.key] = (lanes[r.key] || 0) + 1) - 1; });
+
+    const labels = [];
+    const pkAnchors = new Map();
+
+    const rels = raw.map(r => {
+      const spread = r.lane * 13;
+      let pts;
+      if (r.mode === 'around') {
+        const chX = Math.max(12, Math.min(r.fl.x, r.tl.x) - 38 - spread);
+        pts = [[r.ex, r.fy], [chX, r.fy], [chX, r.ty], [r.en, r.ty]];
+      } else if (r.far) {
+        const g1 = r.ex + r.dir * (46 + spread);
+        const g2 = r.en - r.dir * (46 + spread);
+        const sameRow = r.fl.row === r.tl.row;
+        const corridorY = sameRow
+          ? Math.max(r.fl.y + r.fl.h, r.tl.y + r.tl.h) + 42 + spread
+          : (Math.min(r.fl.y + r.fl.h, r.tl.y + r.tl.h) + Math.max(r.fl.y, r.tl.y)) / 2 + (r.lane - 1) * 12;
+        pts = [[r.ex, r.fy], [g1, r.fy], [g1, corridorY], [g2, corridorY], [g2, r.ty], [r.en, r.ty]];
       } else {
-        svg += `<text x="${colX}" y="${colY}" class="er-col-name">${escSvg(col.name)}</text>`;
+        const mid = (r.ex + r.en) / 2 + (r.lane - 1) * 13;
+        pts = [[r.ex, r.fy], [mid, r.fy], [mid, r.ty], [r.en, r.ty]];
       }
 
-      // Tipo (alinhado à direita)
-      svg += `<text x="${pos.x + pos.width - 10}" y="${colY}" class="er-col-type" text-anchor="end">${escSvg(col.type)}</text>`;
+      const id = r.ft + '.' + r.fc + '>' + r.tt + '.' + r.tc;
+      const isHover = st.hover === id;
+      const touchesSel = !st.sel || r.ft === st.sel || r.tt === st.sel;
+      let opacity = 1;
+      if (st.hover) opacity = isHover ? 1 : 0.09;
+      else if (st.sel) opacity = touchesSel ? 1 : 0.07;
 
-      // Linha separadora entre colunas
-      if (i < table.columns.length - 1) {
-        svg += `<line x1="${pos.x + 8}" y1="${colY + 6}" x2="${pos.x + pos.width - 8}" y2="${colY + 6}" stroke="#2a3a5c" stroke-width="0.5" opacity="0.4" />`;
+      const lbl = (x, y, text, anchorRight) => ({
+        text,
+        x: x + (anchorRight ? -8 : 8),
+        y: y - 15,
+        anchorRight,
+        opacity,
+      });
+
+      // Lado FK: (0,n) ou (1,n) conforme a coluna aceitar NULL.
+      labels.push(lbl(r.ex, r.fy, r.req ? '(1,n)' : '(0,n)', r.dir < 0));
+
+      // Lado PK: (1,1) — FKs que chegam no mesmo ponto compartilham o label.
+      const pkKey = `${r.tt}.${r.tc}:${r.dir > 0 ? 'L' : 'R'}:${Math.round(r.en)}:${Math.round(r.ty)}`;
+      const shared = pkAnchors.get(pkKey);
+      if (shared) {
+        shared.opacity = Math.max(shared.opacity, opacity);
+      } else {
+        const label = lbl(r.en, r.ty, '(1,1)', r.dir > 0);
+        pkAnchors.set(pkKey, label);
+        labels.push(label);
+      }
+
+      return {
+        id,
+        d: roundedPath(pts, CORNER_RADIUS),
+        fx: r.ex, fy: r.fy, tx: r.en, ty: r.ty,
+        stroke: isHover ? REL_COLOR_HOVER : REL_COLOR,
+        width: isHover ? 2.5 : 1.5,
+        opacity,
+        ft: r.ft, fc: r.fc, tt: r.tt, tc: r.tc, req: r.req,
+      };
+    });
+
+    let maxX = 0, maxY = 0;
+    Object.values(L).forEach(p => {
+      maxX = Math.max(maxX, p.x + W);
+      maxY = Math.max(maxY, p.y + p.h);
+    });
+    const canvasW = Math.round(maxX + PAD + 40);
+    const canvasH = Math.round(maxY + PAD + 40);
+
+    // Tabelas fora da vizinhança da seleção ficam esmaecidas.
+    const neighbors = new Set();
+    if (st.sel) {
+      schema.rels.forEach(([from, to]) => {
+        const a = from.split('.')[0], b = to.split('.')[0];
+        if (a === st.sel) neighbors.add(b);
+        if (b === st.sel) neighbors.add(a);
+      });
+    }
+
+    const tables = schema.tables.map(t => {
+      const p = L[t.name];
+      const isSel = st.sel === t.name;
+      return {
+        name: t.name,
+        x: p.x, y: p.y,
+        selected: isSel,
+        dim: !!st.sel && !isSel && !neighbors.has(t.name),
+      };
+    });
+
+    return { tables, rels, labels, canvasW, canvasH };
+  }
+
+  /* ---------------- Montagem do DOM ---------------- */
+
+  /** Estado vazio — banco sem tabelas (modo construtor). */
+  _renderEmpty() {
+    if (this.els && this.els.canvas) this.els.canvas.removeEventListener('wheel', this._onWheel);
+    this._hideTip();
+    this.els = null;
+    this.container.innerHTML = '';
+    const box = el('div', 'erd-empty', this.container);
+    el('div', 'erd-empty-title', box).textContent = 'O desenho começa vazio.';
+    el('p', 'erd-empty-text', box).textContent =
+      'Escreva seu primeiro CREATE TABLE e o diagrama surge aqui.';
+  }
+
+  /** Monta o esqueleto do diagrama (uma vez por schema). */
+  _buildDOM() {
+    if (this.els && this.els.canvas) this.els.canvas.removeEventListener('wheel', this._onWheel);
+    this._hideTip();
+    this.container.innerHTML = '';
+
+    /* --- Barra de controles --- */
+    const controls = el('div', 'erd-controls', this.container);
+    const btn = (className, label, title, onClick) => {
+      const b = el('button', className, controls);
+      b.type = 'button';
+      b.textContent = label;
+      b.title = title;
+      b.addEventListener('click', onClick);
+      return b;
+    };
+    btn('erd-ctrl-btn', '−', 'Diminuir zoom', () => this._zoomBy(1 / 1.15));
+    const zoomLabel = el('span', 'erd-zoom-label', controls);
+    btn('erd-ctrl-btn', '+', 'Aumentar zoom', () => this._zoomBy(1.15));
+    btn('erd-ctrl-btn erd-ctrl-text', 'AJUSTAR', 'Ajustar o diagrama à largura visível', () => this.fit());
+    btn('erd-ctrl-btn erd-ctrl-text', 'RESETAR', 'Voltar ao layout original', () => {
+      this.state.offsets = {};
+      this.state.sel = null;
+      this.state.hover = null;
+      this._hideTip();
+      this._sync();
+      this.fit();
+    });
+    const hint = el('span', 'erd-hint', controls);
+
+    /* --- Canvas rolável --- */
+    const canvas = el('div', 'erd-canvas', this.container);
+    canvas.addEventListener('wheel', this._onWheel, { passive: false });
+
+    const sizer = el('div', 'erd-sizer', canvas);
+    sizer.addEventListener('mousedown', (e) => {
+      // Clique no fundo: limpa a seleção e inicia o pan.
+      if (this.state.sel) {
+        this.state.sel = null;
+        this._sync();
+      }
+      this.moved = false;
+      this.drag = { kind: 'pan', sx: e.clientX, sy: e.clientY, sl: canvas.scrollLeft, st: canvas.scrollTop };
+    });
+
+    const world = el('div', 'erd-world', sizer);
+    const svg = svgEl('svg', world);
+    svg.style.cssText = 'position:absolute;left:0;top:0;overflow:visible;';
+    const labelsLayer = el('div', 'erd-labels', world);
+
+    /* --- Relações (criadas uma vez; a geometria é repintada no _sync) --- */
+    const { rels, tables } = this._geometry();
+    const relEls = rels.map(r => {
+      const g = svgEl('g', svg);
+
+      const path = svgEl('path', g);
+      path.setAttribute('fill', 'none');
+      path.setAttribute('stroke-linejoin', 'round');
+
+      const hit = svgEl('path', g);
+      hit.setAttribute('fill', 'none');
+      hit.setAttribute('stroke', 'rgba(0,0,0,0)');
+      hit.setAttribute('stroke-width', '15');
+      hit.style.cssText = 'cursor:help;pointer-events:stroke;';
+      hit.addEventListener('mouseenter', (e) => this._showTip(r.id, e));
+      hit.addEventListener('mousemove', (e) => this._moveTip(e));
+      hit.addEventListener('mouseleave', () => {
+        if (this.state.hover === null) return;
+        this.state.hover = null;
+        this._hideTip();
+        this._sync();
+      });
+
+      const dotFk = svgEl('circle', g);
+      dotFk.setAttribute('r', '3.2');
+
+      const dotPk = svgEl('circle', g);
+      dotPk.setAttribute('r', '4');
+      dotPk.setAttribute('fill', '#0B111D');
+      dotPk.setAttribute('stroke-width', '1.7');
+
+      return { g, path, hit, dotFk, dotPk };
+    });
+
+    /* --- Cards das tabelas --- */
+    const tableEls = new Map();
+    tables.forEach(t => {
+      const def = this.schema.tables.find(x => x.name === t.name);
+      const card = el('div', 'erd-table', world);
+      card.style.width = W + 'px';
+
+      const inner = el('div', 'erd-table-inner', card);
+      const header = el('div', 'erd-table-header', inner);
+      el('span', 'erd-table-name', header).textContent = t.name;
+      el('span', 'erd-table-count', header).textContent = def.columns.length + ' COL';
+
+      def.columns.forEach(([name, type, kind]) => {
+        const row = el('div', 'erd-table-col', inner);
+        if (kind) {
+          const modifier = kind === 'fk' ? 'fk' : kind === 'pkfk' ? 'pkfk' : 'pk';
+          el('span', 'erd-badge erd-badge--' + modifier, row).textContent =
+            kind === 'pk' ? 'PK' : kind === 'fk' ? 'FK' : 'PK·FK';
+        }
+        el('span', 'erd-col-name' + (kind ? ' erd-col-name--key' : ''), row).textContent = name;
+        el('span', 'erd-col-type', row).textContent = type;
+      });
+
+      const glow = el('div', 'erd-table-glow', card);
+
+      card.addEventListener('mousedown', (e) => {
+        e.stopPropagation();
+        const o = this.state.offsets[t.name] || { dx: 0, dy: 0 };
+        this.moved = false;
+        this.drag = { kind: 'table', name: t.name, sx: e.clientX, sy: e.clientY, bdx: o.dx, bdy: o.dy };
+      });
+      card.addEventListener('click', (e) => {
+        e.stopPropagation();
+        if (this.moved) { this.moved = false; return; }
+        this.state.sel = this.state.sel === t.name ? null : t.name;
+        this._sync();
+      });
+
+      tableEls.set(t.name, { card, glow });
+    });
+
+    /* --- Legenda --- */
+    const legend = el('div', 'erd-legend', this.container);
+    [
+      ['pk', 'PK'],
+      ['fk', 'FK'],
+      ['fk-dot', 'LADO FK · (0,n)'],
+      ['pk-dot', 'LADO PK · (1,1)'],
+      ['table', 'TABELA'],
+    ].forEach(([modifier, text]) => {
+      const item = el('span', 'erd-legend-item', legend);
+      el('span', 'erd-legend-swatch erd-legend-swatch--' + modifier, item);
+      item.appendChild(document.createTextNode(text));
+    });
+
+    this.els = { controls, zoomLabel, hint, canvas, sizer, world, svg, labelsLayer, relEls, tableEls };
+    this._bindDoc();
+  }
+
+  /* ---------------- Repintura ---------------- */
+
+  /** Aplica a geometria e o estado atuais ao DOM já montado. */
+  _sync() {
+    if (!this.els) return;
+    const { sizer, world, svg, labelsLayer, relEls, tableEls, zoomLabel, hint } = this.els;
+    const { tables, rels, labels, canvasW, canvasH } = this._geometry();
+    const zoom = this.state.zoom;
+
+    sizer.style.width = Math.round(canvasW * zoom) + 'px';
+    sizer.style.height = Math.round(canvasH * zoom) + 'px';
+    world.style.width = canvasW + 'px';
+    world.style.height = canvasH + 'px';
+    world.style.transform = `scale(${zoom})`;
+
+    svg.setAttribute('width', canvasW);
+    svg.setAttribute('height', canvasH);
+    svg.setAttribute('viewBox', `0 0 ${canvasW} ${canvasH}`);
+
+    rels.forEach((r, i) => {
+      const e = relEls[i];
+      if (!e) return;
+      e.g.style.opacity = r.opacity;
+      e.path.setAttribute('d', r.d);
+      e.path.setAttribute('stroke', r.stroke);
+      e.path.setAttribute('stroke-width', r.width);
+      e.hit.setAttribute('d', r.d);
+      e.dotFk.setAttribute('cx', r.fx);
+      e.dotFk.setAttribute('cy', r.fy);
+      e.dotFk.setAttribute('fill', r.stroke);
+      e.dotPk.setAttribute('cx', r.tx);
+      e.dotPk.setAttribute('cy', r.ty);
+      e.dotPk.setAttribute('stroke', r.stroke);
+    });
+    // Sobras (relação sem alvo no layout atual) ficam invisíveis.
+    for (let i = rels.length; i < relEls.length; i++) relEls[i].g.style.opacity = 0;
+
+    labelsLayer.innerHTML = '';
+    labels.forEach(l => {
+      const wrap = el('div', 'erd-card-label', labelsLayer);
+      wrap.style.cssText =
+        `position:absolute;left:${l.x}px;top:${l.y}px;opacity:${l.opacity};` +
+        `${l.anchorRight ? 'transform:translateX(-100%);' : ''}pointer-events:none;line-height:12px;`;
+      el('span', 'erd-card-label-text', wrap).textContent = l.text;
+    });
+
+    tables.forEach(t => {
+      const e = tableEls.get(t.name);
+      if (!e) return;
+      e.card.style.left = t.x + 'px';
+      e.card.style.top = t.y + 'px';
+      e.card.style.opacity = t.dim ? 0.2 : 1;
+      e.card.style.zIndex = t.selected ? 3 : 2;
+      e.glow.style.display = t.selected ? 'block' : 'none';
+    });
+
+    zoomLabel.textContent = Math.round(zoom * 100) + '%';
+    hint.textContent = `${tables.length} TABELAS · ${rels.length} RELAÇÕES`;
+  }
+
+  /* ---------------- Tooltip ---------------- */
+
+  _relById(id) {
+    const { rels } = this._geometry();
+    return rels.find(r => r.id === id) || null;
+  }
+
+  _showTip(id, e) {
+    const r = this._relById(id);
+    if (!r) return;
+    this.state.hover = id;
+    if (!this.tipEl) {
+      this.tipEl = el('div', 'erd-tooltip');
+      el('div', 'erd-tooltip-label', this.tipEl).textContent = 'RELACIONAMENTO';
+      this.tipSqlEl = el('div', 'erd-tooltip-sql', this.tipEl);
+      this.tipCardEl = el('div', 'erd-tooltip-card', this.tipEl);
+      document.body.appendChild(this.tipEl);
+    }
+    this.tipSqlEl.textContent = `FOREIGN KEY (${r.fc}) REFERENCES ${r.tt}(${r.tc})`;
+    this.tipCardEl.textContent = `${r.ft} ${r.req ? '(1,n)' : '(0,n)'} —— (1,1) ${r.tt}`;
+    this._moveTip(e);
+    this._sync();
+  }
+
+  _moveTip(e) {
+    if (!this.tipEl) return;
+    this.tipEl.style.cssText =
+      `position:fixed;left:${e.clientX + 16}px;top:${e.clientY + 16}px;z-index:9999;pointer-events:none;display:block;`;
+  }
+
+  _hideTip() {
+    if (this.tipEl) this.tipEl.style.display = 'none';
+  }
+
+  /* ---------------- Interações ---------------- */
+
+  _zoomBy(factor) {
+    this.state.zoom = Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, this.state.zoom * factor));
+    this._sync();
+  }
+
+  _onWheel(e) {
+    e.preventDefault();
+    const canvas = this.els && this.els.canvas;
+    if (!canvas) return;
+    const z = this.state.zoom;
+    const next = Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, z * (e.deltaY < 0 ? 1.12 : 0.89)));
+    if (next === z) return;
+
+    // Mantém sob o cursor o mesmo ponto do diagrama.
+    const box = canvas.getBoundingClientRect();
+    const px = e.clientX - box.left, py = e.clientY - box.top;
+    const cx = (canvas.scrollLeft + px) / z, cy = (canvas.scrollTop + py) / z;
+    this.state.zoom = next;
+    this._sync();
+    canvas.scrollLeft = cx * next - px;
+    canvas.scrollTop = cy * next - py;
+  }
+
+  _onDocMove(e) {
+    const d = this.drag;
+    if (!d) return;
+    if (Math.abs(e.clientX - d.sx) + Math.abs(e.clientY - d.sy) > 3) this.moved = true;
+    if (d.kind === 'table') {
+      const z = this.state.zoom || 1;
+      this.state.offsets[d.name] = {
+        dx: d.bdx + (e.clientX - d.sx) / z,
+        dy: d.bdy + (e.clientY - d.sy) / z,
+      };
+      this._sync();
+    } else if (d.kind === 'pan') {
+      const canvas = this.els && this.els.canvas;
+      if (canvas) {
+        canvas.scrollLeft = d.sl - (e.clientX - d.sx);
+        canvas.scrollTop = d.st - (e.clientY - d.sy);
       }
     }
   }
 
-  svg += '</svg>';
-  return svg;
+  _onDocUp() {
+    this.drag = null;
+  }
 }
 
-/** Gera um diagrama a partir do schema carregado do caso ativo. */
-function generateActiveCaseERDiagramSVG() {
-  const tables = getSchemaDetailed();
-  if (tables.length === 0) {
-    return `<svg xmlns="http://www.w3.org/2000/svg" width="420" height="140" viewBox="0 0 420 140" role="img" aria-label="Nenhuma tabela criada ainda" style="max-width: none; height: auto;">
-      <rect x="0" y="0" width="420" height="140" rx="8" fill="rgba(17,24,39,0.9)" stroke="#2a3a5c" />
-      <text x="210" y="60" class="er-table-title" text-anchor="middle">O desenho começa vazio.</text>
-      <text x="210" y="90" font-family="Inter, sans-serif" font-size="12" fill="#8b99b8" text-anchor="middle">Escreva seu primeiro CREATE TABLE e o diagrama surge aqui.</text>
-    </svg>`;
+/* ================================================================
+   API PÚBLICA (RETROCOMPATÍVEL)
+   ================================================================ */
+
+/** Uma instância por container — preserva zoom/pan entre re-renders. */
+const instances = new WeakMap();
+
+/**
+ * Renderiza (ou atualiza) o diagrama ER interativo no container.
+ * @param {HTMLElement} container
+ */
+export function renderERDiagram(container) {
+  if (!container) return;
+  let instance = instances.get(container);
+  if (!instance) {
+    instance = new ERDiagram(container);
+    instances.set(container, instance);
   }
-  const columns = 3;
-  const positions = {};
-  const rowHeights = [];
-  tables.forEach((table, index) => {
-    const row = Math.floor(index / columns);
-    positions[table.tableName] = { col: index % columns, row };
-    rowHeights[row] = Math.max(rowHeights[row] || 0, HEADER_HEIGHT + table.columns.length * ROW_HEIGHT);
+  instance.refresh();
+}
+
+/**
+ * Reajusta o zoom do diagrama do container à largura visível.
+ * @param {HTMLElement} container
+ */
+export function fitERDiagram(container) {
+  if (!container) return;
+  const instance = instances.get(container);
+  if (instance) instance.fit();
+}
+
+/**
+ * Remove o diagrama do container e desfaz seus listeners.
+ * @param {HTMLElement} container
+ */
+export function destroyERDiagram(container) {
+  if (!container) return;
+  const instance = instances.get(container);
+  if (!instance) return;
+  instance.destroy();
+  instances.delete(container);
+}
+
+/**
+ * Gera uma versão estática do diagrama em SVG (export/impressão).
+ * @returns {string} markup SVG
+ */
+export function generateERDiagramSVG() {
+  const schema = loadSchema();
+  const tables = schema.status === 'empty' ? STATIC_TABLES : schema.tables;
+
+  const rowH = {}, rowY = {};
+  tables.forEach(t => {
+    rowH[t.row] = Math.max(rowH[t.row] || 0, HEAD + t.columns.length * ROW);
   });
-  const rowOffsets = [];
-  let y = PADDING;
-  rowHeights.forEach((height, row) => { rowOffsets[row] = y; y += height + TABLE_GAP_Y; });
-  const layout = {};
-  tables.forEach(table => {
-    const pos = positions[table.tableName];
-    layout[table.tableName] = { x: PADDING + pos.col * (TABLE_WIDTH + TABLE_GAP_X), y: rowOffsets[pos.row], width: TABLE_WIDTH, height: HEADER_HEIGHT + table.columns.length * ROW_HEIGHT };
+  let acc = PAD;
+  const maxRow = Math.max(0, ...tables.map(t => t.row));
+  for (let r = 0; r <= maxRow; r++) { rowY[r] = acc; acc += (rowH[r] || 0) + GY; }
+
+  const L = {};
+  tables.forEach(t => {
+    L[t.name] = { x: PAD + t.col * (W + GX), y: rowY[t.row], h: HEAD + t.columns.length * ROW };
   });
-  const svgWidth = PADDING * 2 + Math.min(columns, tables.length) * TABLE_WIDTH + Math.max(0, Math.min(columns, tables.length) - 1) * TABLE_GAP_X;
-  const svgHeight = y - TABLE_GAP_Y + PADDING;
-  let svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${svgWidth}" height="${svgHeight}" viewBox="0 0 ${svgWidth} ${svgHeight}" role="img" aria-label="Diagrama de entidades e relacionamentos" style="max-width: none; height: auto;">`;
-  tables.forEach(table => table.columns.filter(column => column.fk).forEach(column => {
-    const [targetName] = column.fk.split('.');
-    const from = layout[table.tableName]; const target = layout[targetName];
-    if (!target) return;
-    const rowIndex = table.columns.findIndex(item => item.name === column.name);
-    const fromY = from.y + HEADER_HEIGHT + rowIndex * ROW_HEIGHT + ROW_HEIGHT / 2;
-    const toY = target.y + HEADER_HEIGHT + ROW_HEIGHT / 2;
-    const fromX = from.x + from.width; const toX = target.x;
-    svg += `<path class="er-relation" d="M ${fromX} ${fromY} L ${toX} ${toY}" /><circle class="er-relation-dot" cx="${fromX}" cy="${fromY}" r="3" />`;
-  }));
-  tables.forEach(table => {
-    const pos = layout[table.tableName];
-    svg += `<rect x="${pos.x}" y="${pos.y}" width="${pos.width}" height="${pos.height}" rx="8" fill="rgba(17,24,39,0.9)" stroke="#2a3a5c" />`;
-    svg += `<rect x="${pos.x}" y="${pos.y}" width="${pos.width}" height="${HEADER_HEIGHT}" rx="8" class="er-table-header" /><text x="${pos.x + 10}" y="${pos.y + 18}" class="er-table-title">${escSvg(table.tableName)}</text>`;
-    table.columns.forEach((column, index) => {
-      const colY = pos.y + HEADER_HEIGHT + index * ROW_HEIGHT + 14;
-      const marker = column.pk ? 'PK ' : column.fk ? 'FK ' : '';
-      const cls = column.pk ? ' er-pk' : column.fk ? ' er-fk' : '';
-      svg += `<text x="${pos.x + 10}" y="${colY}" class="er-col-name${cls}">${marker}${escSvg(column.name)}</text><text x="${pos.x + pos.width - 10}" y="${colY}" class="er-col-type" text-anchor="end">${escSvg(column.type)}</text>`;
+
+  let maxX = 0, maxY = 0;
+  Object.values(L).forEach(p => { maxX = Math.max(maxX, p.x + W); maxY = Math.max(maxY, p.y + p.h); });
+  const svgW = maxX + PAD;
+  const svgH = maxY + PAD;
+
+  let svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${svgW}" height="${svgH}" viewBox="0 0 ${svgW} ${svgH}" role="img" aria-label="Diagrama de entidades e relacionamentos" style="max-width:none;height:auto;">`;
+  tables.forEach(t => {
+    const p = L[t.name];
+    svg += `<rect x="${p.x}" y="${p.y}" width="${W}" height="${p.h}" rx="5" fill="rgba(11,17,29,.9)" stroke="#1B2A47"/>`;
+    svg += `<rect x="${p.x}" y="${p.y}" width="${W}" height="${HEAD}" rx="5" fill="rgba(0,240,255,.07)" stroke="rgba(0,240,255,.42)"/>`;
+    svg += `<text x="${p.x + 11}" y="${p.y + 20}" font-family="'JetBrains Mono',monospace" font-size="12.5" font-weight="700" fill="#00F0FF">${esc(t.name)}</text>`;
+    t.columns.forEach(([name, type, kind], i) => {
+      const marker = kind === 'pk' ? 'PK ' : kind === 'fk' ? 'FK ' : kind === 'pkfk' ? 'PK·FK ' : '';
+      svg += `<text x="${p.x + 11}" y="${p.y + HEAD + i * ROW + 15}" font-family="'JetBrains Mono',monospace" font-size="11" fill="#C6D4E6">${esc(marker + name)}</text>`;
+      svg += `<text x="${p.x + W - 11}" y="${p.y + HEAD + i * ROW + 15}" font-family="'JetBrains Mono',monospace" font-size="9.5" fill="#4E6183" text-anchor="end">${esc(type)}</text>`;
     });
   });
   return svg + '</svg>';
 }
 
-/**
- * Renderiza o diagrama ER no container especificado.
- * @param {HTMLElement} container elemento onde o SVG será inserido
- */
-export function renderERDiagram(container) {
-  if (!container) return;
-  const svg = generateActiveCaseERDiagramSVG();
-  container.innerHTML = svg;
+/** Helper: alvo da FK estática de uma coluna. */
+function findFkTarget(tableName, colName) {
+  const key = `${tableName}.${colName}`;
+  const match = STATIC_RELS.find(([from]) => from === key);
+  return match ? match[1] : null;
 }
 
 /**
@@ -362,7 +847,15 @@ export function renderERDiagram(container) {
  * @returns {object[]}
  */
 export function getERTables() {
-  return TABLES;
+  return STATIC_TABLES.map(t => ({
+    name: t.name,
+    columns: t.columns.map(([name, type, kind]) => ({
+      name,
+      type,
+      pk: kind === 'pk' || kind === 'pkfk',
+      fk: kind === 'fk' || kind === 'pkfk' ? findFkTarget(t.name, name) : null,
+    })),
+  }));
 }
 
 /**
@@ -370,5 +863,5 @@ export function getERTables() {
  * @returns {object[]}
  */
 export function getERRelations() {
-  return RELATIONS;
+  return STATIC_RELS.map(([from, to]) => ({ from, to }));
 }

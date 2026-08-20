@@ -404,6 +404,17 @@ export function getSchemaDetailed() {
   const schema = [];
   for (const [tableName, objectType] of tablesResult[0].values) {
     const colsResult = db.exec(`PRAGMA table_info(${tableName});`);
+
+    // Mapa coluna -> alvo da FK (uma consulta por tabela, não por coluna).
+    const fkByColumn = {};
+    const fkResult = db.exec(`PRAGMA foreign_key_list(${tableName});`);
+    if (fkResult.length > 0) {
+      for (const fkRow of fkResult[0].values) {
+        // fkRow: [id, seq, table, from, to, on_update, on_delete, match]
+        if (fkByColumn[fkRow[3]] === undefined) fkByColumn[fkRow[3]] = `${fkRow[2]}.${fkRow[4]}`;
+      }
+    }
+
     const columns = [];
     if (colsResult.length > 0) {
       for (const row of colsResult[0].values) {
@@ -411,21 +422,10 @@ export function getSchemaDetailed() {
         const colName = row[1];
         const colType = row[2] || 'ANY';
         const isPk = row[5] > 0;
+        const notNull = row[3] > 0;
+        const fk = fkByColumn[colName] !== undefined ? fkByColumn[colName] : null;
 
-        // Busca FK
-        let fk = null;
-        const fkResult = db.exec(`PRAGMA foreign_key_list(${tableName});`);
-        if (fkResult.length > 0) {
-          for (const fkRow of fkResult[0].values) {
-            // fkRow: [id, seq, table, from, to, on_update, on_delete, match]
-            if (fkRow[3] === colName) {
-              fk = `${fkRow[2]}.${fkRow[4]}`;
-              break;
-            }
-          }
-        }
-
-        columns.push({ name: colName, type: colType, pk: isPk, fk });
+        columns.push({ name: colName, type: colType, pk: isPk, notnull: notNull, fk });
       }
     }
     schema.push({ tableName, objectType, columns });
